@@ -1,8 +1,22 @@
 function showFFT(im)
-    % Display FFT magnitude spectrum with frequency axes in cycles per image
+    % Display the 2D FFT magnitude spectrum with axes in cycles per image
     %
-    % Input:
-    %   im - 2D image (single frame)
+    % function zstack.filtering.showFFT(im)
+    %
+    % Purpose
+    % Plot the log magnitude spectrum of an image so that periodic noise can be
+    % identified before choosing filter parameters. Two panels are drawn: the full
+    % spectrum and a zoom on the lowest 10% of frequencies.
+    %
+    % Inputs
+    % im - 2D image (single frame). Image stacks are averaged over the third dimension.
+    %
+    % Outputs
+    % none
+    %
+    %
+    % Rob Campbell - SWC 2026
+
 
     im = double(im);
     im = mean(im,3);
@@ -16,8 +30,10 @@ function showFFT(im)
     fx = (-width/2:width/2-1) / width;
     fy = (-height/2:height/2-1) / height;
 
+
     % Display
     clf
+
     % Left: FFT magnitude
     subplot(1, 2, 1);
     imagesc(fx, fy, mag);
@@ -26,6 +42,7 @@ function showFFT(im)
     xlabel('Frequency (cycles per image width)');
     ylabel('Frequency (cycles per image height)');
     title('FFT Magnitude (log scale)');
+
 
     % Right: Zoom on low frequencies (first 10% of spectrum)
     subplot(1, 2, 2);
@@ -42,4 +59,5 @@ function showFFT(im)
     xlabel('Frequency (cycles per image width)');
     ylabel('Frequency (cycles per image height)');
     title('Low-frequency detail (zoomed)');
-end
+
+end % showFFT

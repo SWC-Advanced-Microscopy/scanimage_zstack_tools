@@ -1,14 +1,25 @@
 function im_filtered = notchFilterFFT(im, fx_target, fy_target, notch_width)
-    % Notch filter at specific frequencies
+    % Notch filter an image at a specific 2D spatial frequency
     %
-    % Inputs:
-    %   im           - 2D image
-    %   fx_target    - target x frequency (cycles per image), e.g. 0.08
-    %   fy_target    - target y frequency (cycles per image), e.g. 0.02
-    %   notch_width  - width of notch (try 0.005-0.02)
+    % function im_filtered = zstack.filtering.notchFilterFFT(im, fx_target, fy_target, notch_width)
     %
-    % Output:
-    %   im_filtered - filtered image
+    % Purpose
+    % Suppress a single periodic component of an image by applying a Gaussian notch
+    % centred on a known spatial frequency in the 2D FFT. The notch is applied in all
+    % four quadrants, since a real image has a 4-fold symmetric spectrum.
+    %
+    % Inputs
+    % im - 2D image.
+    % fx_target - target x frequency in cycles per image. e.g. 0.08
+    % fy_target - target y frequency in cycles per image. e.g. 0.02
+    % notch_width - width of the notch. Try 0.005 to 0.02
+    %
+    % Outputs
+    % im_filtered - the filtered image.
+    %
+    %
+    % Rob Campbell - SWC 2026
+
 
     im = double(im);
     [height, width] = size(im);
@@ -33,4 +44,5 @@ function im_filtered = notchFilterFFT(im, fx_target, fy_target, notch_width)
 
     % Inverse FFT
     im_filtered = real(ifft2(ifftshift(F_filtered)));
-end
+
+end % notchFilterFFT

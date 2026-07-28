@@ -1,13 +1,25 @@
-function im_filtered = removePeriodicNoise(im, wavelength,fwidth)
-    % Remove low-frequency periodic noise via notch filtering in frequency domain
+function im_filtered = removePeriodicNoise(im, wavelength, fwidth)
+    % Remove low-frequency periodic noise by notch filtering in the frequency domain
     %
-    % Inputs:
-    %   im        - 2D image (single frame)
-    %   wavelength - approximate wavelength of the periodic pattern in pixels
-    %               (e.g., 512/4 = 128 pixels for 4 cycles per frame)
+    % function im_filtered = zstack.filtering.removePeriodicNoise(im, wavelength, fwidth)
     %
-    % Output:
-    %   im_filtered - filtered image
+    % Purpose
+    % Periodic noise of a known spatial scale appears as a ring in the 2D FFT. This
+    % function builds a Gaussian notch at the radius corresponding to the supplied
+    % wavelength and suppresses it.
+    %
+    % Inputs
+    % im - 2D image (single frame).
+    % wavelength - approximate wavelength of the periodic pattern in pixels.
+    %              e.g. 512/4 = 128 pixels for 4 cycles per frame.
+    % fwidth - width of the notch. Larger values produce a less sharp filter.
+    %
+    % Outputs
+    % im_filtered - the filtered image.
+    %
+    %
+    % Rob Campbell - SWC 2026
+
 
     % Convert to double if needed
     im = double(im);
@@ -34,4 +46,5 @@ function im_filtered = removePeriodicNoise(im, wavelength,fwidth)
 
     % Inverse FFT
     im_filtered = real(ifft2(ifftshift(F_filtered)));
-end
+
+end % removePeriodicNoise

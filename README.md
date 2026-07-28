@@ -17,10 +17,9 @@ To save data there is currently no elegant writer function, just do:
 
 
 ```matlab
- zstack.io.writeSignedTiff(int16(OUT(1).mean_z),'zstack_chan_01.tiff',
- zstack.io.writeSignedTiff(int16(OUT(2).mean_z),'zstack_chan_02.tiff',
+ zstack.io.writeSignedTiff(int16(OUT(1).mean_z),'zstack_red_chan.tiff')
+ zstack.io.writeSignedTiff(int16(OUT(2).mean_z),'zstack_green_chan.tiff')
  ```
 
-If the image data are all positive you can cast as `uinit16` instead. 
-The above will write data to the tiff as either `int16` or `uint16`. 
-We retain this flexibility because ScanImage writes data as signed ints and we may not have removed the baseline at this point. 
+Note: 1) The need to cast as int16. 2) In this case the first index is red and the second is green. Your data may be different. 
+It won't write otherwise and ScanImage writes data as signed ints.

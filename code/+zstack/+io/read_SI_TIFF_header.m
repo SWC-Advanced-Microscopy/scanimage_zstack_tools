@@ -1,7 +1,7 @@
 function header = read_SI_TIFF_header(fname)
     % Return ScanImage TIFF header as a structure
     %
-    % H = utils.read_SI_TIFF_header(fname)
+    % function header = zstack.io.read_SI_TIFF_header(fname)
     %
     % Purpose
     % Return ScanImage TIFF header as a structure. Returns empty
@@ -30,42 +30,42 @@ function header = read_SI_TIFF_header(fname)
     end
 
     header = parse_si_header(tmp(1),'Software');
-end
+
+end % read_SI_TIFF_header
 
 
 function si_metadata = parse_si_header(tiff_header, si_fields)
-    % PARSE_SI_HEADER extract ScanImage related information from TIFF headers
+    % Extract ScanImage related information from TIFF headers
     %
-    % si_metadata = isbridge.parse_si_header(tiff_header)
+    % function si_metadata = parse_si_header(tiff_header, si_fields)
     %
-    % This function filters a field of TIFF frames header where ScanImage dumps
-    % its metadata.
+    % Purpose
+    % Filters a field of the TIFF frame header into which ScanImage dumps its
+    % metadata.
     %
-    % INPUTS
-    %   tiff_header - TIFF images header, as a structure array
-    %   si_fields - (optional) default: 'ImageDescription'
-    %       field(s) of 'tiff_header' used to retrieve ScanImage metadata, as a
-    %       string or a cellarray of strings
+    % Inputs
+    % tiff_header - TIFF images header, as a structure array.
+    % si_fields - [optional] field(s) of tiff_header used to retrieve ScanImage
+    %             metadata, as a string or a cell array of strings.
+    %             Default: 'ImageDescription'
     %
-    % OUTPUTS
-    %   si_metadata - ScanImage metadata, as a structure array with the same
-    %       shape as 'tiff_header' or empty
+    % Outputs
+    % si_metadata - ScanImage metadata, as a structure array with the same shape
+    %               as tiff_header, or empty.
     %
-    % REMARKS
-    %   Fields of the returned structure highly depend on the version of
-    %   ScanImage and the TIFF header field parsed (e.g. ImageDescription or
-    %   Software).
+    % Notes
+    % The fields of the returned structure depend heavily on the version of
+    % ScanImage and on the TIFF header field parsed (e.g. ImageDescription or
+    % Software). This function will fail if several parsed fields contain one
+    % sub-field with the same name.
     %
-    %   This function will fail if several parsed fields contain one sub-field
-    %   with the same name.
+    % Examples
     %
-    % EXAMPLES:
-    % Read the "Software" field
-    % A=sibridge.parse_si_header(T(1),'Software');
+    % - Read the "Software" field
+    % >> A = parse_si_header(T(1),'Software');
     %
-    % Read both the 'ImageDescription' and  `Software` fields
-    % sibridge.parse_si_header(T(1),{'ImageDescription','Software'})
-
+    % - Read both the 'ImageDescription' and 'Software' fields
+    % >> parse_si_header(T(1),{'ImageDescription','Software'})
 
 
     % check inputs
@@ -116,10 +116,13 @@ function si_metadata = parse_si_header(tiff_header, si_fields)
         metadata_values = cat(1, metadata_values{:});
         si_metadata = cell2struct(metadata_values, metadata_fields, 1);
     end
-end
+
+end % parse_si_header
+
+
 
 function si_metadata = parse_field(tiff_header, si_field)
-    % parse one field of TIFF headers to populate a structure
+    % Parse one field of the TIFF headers to populate a structure
 
     % create a struct and fill fields for each frame
     si_metadata = struct([]);
@@ -153,4 +156,5 @@ function si_metadata = parse_field(tiff_header, si_field)
     end
 
     si_metadata = reshape(si_metadata, size(tiff_header));
-end
+
+end % parse_field
