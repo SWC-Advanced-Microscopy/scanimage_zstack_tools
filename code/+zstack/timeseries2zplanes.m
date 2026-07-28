@@ -9,33 +9,38 @@ function out = timeseries2zplanes(fname,chan,freq_cutoff)
     % then applied to the remaining channels, so all channels stay in register with
     % one another.
     %
-    % Every channel is high-pass filtered as it is loaded, before anything else
-    % touches it. Filtering here rather than within the registration keeps all
-    % channels treated identically.
+    % Optionally the data may be high-pass filtered as they are loaded, before
+    % anything else touches them. This is off by default. Filtering here rather
+    % than within the registration keeps all channels treated identically.
     %
     % Inputs
     % fname - relative or absolute path to a ScanImage TIFF stack on disk.
     % chan - the channel used to calculate the registration.
     % freq_cutoff - [optional] frequency threshold in cycles per image for the
     %               high-pass filter applied to each channel. If zero or empty no
-    %               filtering is done. Default 0.015, which filters very low
-    %               frequencies. This will need tweaking in future, as it is here
-    %               only to handle existing noisy data.
+    %               filtering is done, which is the default. A value of about
+    %               0.015 filters very low frequencies. The filter is not enabled
+    %               by default because it needs more work.
     %
     % Outputs
     % out - structure array with one element per saved channel and the fields:
     %       mean_z - the mean image at each z depth (x by y by depth).
     %       channel - the channel these data came from.
     %
-    % Example
-    % OUT = zstack.timeseries2zplanes('myTimeSeries.tif',1);
+    % Examples
+    %
+    % - Register on channel 1 with no filtering
+    % >> OUT = zstack.timeseries2zplanes('myTimeSeries.tif',1);
+    %
+    % - The same, but high-pass filter the data first
+    % >> OUT = zstack.timeseries2zplanes('myTimeSeries.tif',1,0.015);
     %
     %
     % Rob Campbell - SWC 2026
 
 
     if nargin<3
-        freq_cutoff = 0.015;
+        freq_cutoff = 0; % No filtering by default
     end
 
     out = [] ; % in case of an error

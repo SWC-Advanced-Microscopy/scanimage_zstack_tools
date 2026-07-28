@@ -99,10 +99,10 @@ function varargout=apply_ffttrans(movingStack,target,params)
             end
         end
 
-        %re-scale so the range of the movingstack is the same
+        % Match the class of the "before" data to that of the registered output.
+        % No re-scaling is done: a translation preserves pixel values, so the
+        % registered stack is already on the same scale as the input.
         movingStack = cast(movingStack,class(registered));
-        registered=registered/max(registered(:));
-        registered=registered*max(movingStack(:));
 
         %Handle the output arguments
         if nargout>0, varargout{1}=registered; end
@@ -147,7 +147,10 @@ function varargout=apply_ffttrans(movingStack,target,params)
             [output,Greg,phase] = ...
                 dftregistration(targetFFT,movingFFT,p.usfac);
             OffsetPixel=output([3,4]);
-            registered=abs(ifft2(Greg));
+            % real() not abs(): the inverse transform of a translated real image
+            % is real bar numerical residue, whereas abs() would rectify any
+            % genuinely negative pixels (ScanImage data are signed).
+            registered=real(ifft2(Greg));
         else
             fprintf('Failed to register moving image to target image\n\n\n')
             return
@@ -174,7 +177,7 @@ function varargout=apply_ffttrans(movingStack,target,params)
 
         registered=movingFFT.*exp(i*2*pi*(-row_shift*Nr/nr-col_shift*Nc/nc));
         registered=registered.*exp(-i*phase);
-        registered=abs(ifft2(registered));
+        registered=real(ifft2(registered)); % real() not abs(): see above
 
     end
 
