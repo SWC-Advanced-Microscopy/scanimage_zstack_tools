@@ -11,11 +11,20 @@ function record(varargin)
     % window. The path to the saved data is displayed to screen. Data are saved into
     % the current directory.
     %
+    %
+    % INSTRUCTIONS
+    % 1. Check 'Enable Stack' in the main ScanImage Window.
+    % 2. Go to 'Stack Controls' and go to the 'Bounded' tab.
+    % 3. Navigate to brain surface or just above. Set laser power. Set the start step (clear first if needed)
+    % 4. Navigate to the lowest depth you will image. Set the end.
+    % 5. Run this command.
+    %
+    %
     % Inputs
-    % All inputs are optional parameter/value pairs. The user will be interactively
+    % All inputs are optional parameter/value pairs.
     % prompted at the CLI to fill in any undefined values.
-    % 'depthMicrons'      - Total depth to image in microns. Default 250.
     % 'stepSize'          - Number of microns between each z step. Default 2.
+    % 'framesToAverage'   - By default is 100
     % 'wavelength'        - Excitation wavelength in nm. Default 920.
     %
     %
@@ -23,15 +32,18 @@ function record(varargin)
     % none
     %
     %
+    % NOTE
+    % 1. ScanImage 2020 or later
+    % 2. You must have a coarse z motor and it must be working and the units must be in microns
+    % 
+    %
     % Examples
-    % 1) Record a 12 micron stack, and prompt user for other inputs.
-    % >> zstack.record('depthMicrons',12)
-    %
-    % 2) Record a 20 micron stack every 0.5 microns.
-    % >> zstack.record('depthMicrons',20,'stepSize',0.5);
+    % 1) Record a 20 micron stack every 2 microns.
+    % >> zstack.record('stepSize',2);
     %
     %
-    % Rob Campbell, SWC AMF, initial commit Nov 2018
+    % Rob Campbell, SWC AMF, initial commit July 2026
+    % Based on mpqc.record.PSF (original Nov 2018)
 
 
     % Parse optional param/value pairs and interactively prompt for anything not
@@ -40,25 +52,23 @@ function record(varargin)
     params.CaseSensitive = false; % So we do not have to be case sensitive
     params.KeepUnmatched = true;
     params.addParameter('wavelength', [], @(x) isnumeric(x));
-    params.addParameter('depthMicrons', [], @(x) isnumeric(x));
+    params.addParameter('framesToAverage', 100, @(x) isnumeric(x));
     params.addParameter('stepSize', [], @(x) isnumeric(x));
     params.parse(varargin{:});
 
     laser_wavelength = params.Results.wavelength;
-    micronsToImage = params.Results.depthMicrons;
+    framesToAverage = params.Results.framesToAverage;
     stepSizeInMicrons = params.Results.stepSize;
 
-    % Interactively handle each input argument if it was not supplied as a param/val pair
-    if isempty(micronsToImage)
-        default = 250;
-        txt = sprintf('Please enter depth (um) [%d]: ', default);
-        micronsToImage = round(parseResponse(txt, default));
-    end
 
+    % ensure framesToAverage is divisble by 2, because we will average
+    % adjacent frames to save space
+    framesToAverage = ceil(framesToAverage/2)*2;
+
+
+    % Interactively handle each input argument if it was not supplied as a param/val pair
     if isempty(stepSizeInMicrons)
-        default = 2;
-        txt = sprintf('Please enter step size (um) [%d]: ', default);
-        stepSizeInMicrons = parseResponse(txt, default);
+        default = 4;
     end
 
     if isempty(laser_wavelength)
@@ -76,10 +86,22 @@ function record(varargin)
     end
 
 
-    if length(API.hSI.hChannels.channelSave) > 1
-        fprintf('Select just one channel to save\n')
-        return
+    % Use the bounded stack to run the acquisition
+    startPos = API.hSI.hStackManager.stackZStartPos;
+    endPos = API.hSI.hStackManager.stackZEndPos;
+    API.hSI.hStackManager.useStartEndPowers=true; %ensure user choices honoured
+
+    micronsToImage = abs(startPos-endPos);
+    numSlices = ceil(micronsToImage / stepSizeInMicrons);
+
+    % record if downward objective motions are positive or negative
+    % we need this later for pre-loading the coarse z
+    if startPos<endPos
+        downwardMotionSign = 1;
+    else
+        downwardMotionSign = -1;
     end
+
 
     % Save into the current directory
     saveDir = pwd;
@@ -89,7 +111,8 @@ function record(varargin)
     initialSettings = recordScanImageSettings(API);
 
     % We will set up ScanImage to acquire the z-stack
-    framesToAverage = API.hSI.hDisplay.displayRollingAverageFactor;
+    API.hSI.hDisplay.displayRollingAverageFactor = framesToAverage;
+
     numSlices = round(micronsToImage/stepSizeInMicrons);
     fileStem = sprintf('zstack__%d_nm__%s', ....
             laser_wavelength, ...
@@ -97,21 +120,14 @@ function record(varargin)
 
     try
 
-        if API.versionGreaterThan('2020')
-            API.hSI.hStackManager.closeShutterBetweenSlices = false;
-            API.hSI.hStackManager.numVolumes = 1;
-            API.hSI.hStackManager.stackActuator = 'fastZ';
-            API.hSI.hStackManager.centeredStack = 0;
-            API.hSI.hStackManager.enable = true;
-        else
-            API.hSI.hFastZ.enable=false;
-            API.hSI.hFastZ.numVolumes=1;
-            API.hSI.hStackManager.stackStartCentered=false; %TODO: SI doesn't work correctly when true
-            API.hSI.hStackManager.shutterCloseMinZStepSize=stepSizeInMicrons+1;
-            API.hSI.hStackManager.slowStackWithFastZ=true;
-        end
+        API.hSI.hStackManager.closeShutterBetweenSlices = false;
+        API.hSI.hStackManager.numVolumes = 1;
+        API.hSI.hStackManager.stackActuator = 'motor';
+        API.hSI.hStackManager.centeredStack = 0;
+        API.hSI.hStackManager.enable = true;
+
         %%
-        API.hSI.hFastZ.waveformType='step';
+        %API.hSI.hFastZ.waveformType='step';
 
 
         API.hSI.hStackManager.numSlices=numSlices;
@@ -124,7 +140,11 @@ function record(varargin)
         API.hSI.hScan2D.logFileCounter=1;
 
         API.hSI.hStackManager.framesPerSlice = framesToAverage;
-        API.hSI.hScan2D.logAverageFactor = framesToAverage;
+        
+        % We will average adjacent frames meaning final size on disk will be half what it would
+        % otherwise be. On a typical resonant scanning rig that means 7 to 10 FPS (since we disable bidi)
+        API.hSI.hScan2D.logAverageFactor = 2; 
+
         API.hSI.hScan2D.bidirectional = 0; % disable bidi to avoid bidi artifacts in stacks
 
         API.hSI.hDisplay.volumeDisplayStyle='Current';
@@ -134,6 +154,27 @@ function record(varargin)
         fprintf(ME.message)
         return
     end
+
+
+    % Pre-load coarse z motors (we assume Z is on 3) and units in microns
+    allMotorsCurrent = API.hSI.hMotors.samplePosition;
+
+    % Go to the start Z pos, as we may well not be there yet
+    allMotorsCurrent(3) = startPos;
+    API.hSI.hMotors.moveSample(allMotorsCurrent);
+
+
+    % Now move a good deal UP then back down to pre-load the motor
+    currentZMotorPos = API.hSI.hMotors.samplePosition(3);
+    targetZMotorPos = currentZMotorPos - (700*downwardMotionSign);
+
+    allMotorsTarget = allMotorsCurrent;
+    allMotorsTarget(3) = targetZMotorPos;
+
+    API.hSI.hMotors.moveSample(allMotorsTarget);
+    API.hSI.hMotors.moveSample(allMotorsCurrent);
+
+    pause(1)
 
     % Start the acquisition and wait for it to finish
     API.acquireAndWait;
@@ -145,6 +186,7 @@ function record(varargin)
     end
 
 
+    % TODO -- apply this in a cleanup function 
     reapplyScanImageSettings(API,initialSettings);
 
 end % zstack.record
@@ -164,3 +206,4 @@ function response = parseResponse(promptString,default)
         end
    end
 end % parseResponse
+
