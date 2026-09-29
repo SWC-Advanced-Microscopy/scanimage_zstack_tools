@@ -23,3 +23,7 @@ To save data there is currently no elegant writer function, just do:
 
 Note: 1) The need to cast as int16. 2) In this case the first index is red and the second is green. Your data may be different. 
 It won't write otherwise and ScanImage writes data as signed ints.
+
+
+# Recording a zstack easily in ScanImage
+Use the tool `zstack.record`. Instructions: `help zstack.record`
