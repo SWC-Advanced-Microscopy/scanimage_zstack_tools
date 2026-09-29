@@ -24,7 +24,7 @@ function record(varargin)
     % All inputs are optional parameter/value pairs.
     % prompted at the CLI to fill in any undefined values.
     % 'stepSize'          - Number of microns between each z step. Default 2.
-    % 'framesToAverage'   - By default is 100
+    % 'framesToAverage'   - By default is 64
     % 'wavelength'        - Excitation wavelength in nm. Default 920.
     %
     %
@@ -35,7 +35,7 @@ function record(varargin)
     % NOTE
     % 1. ScanImage 2020 or later
     % 2. You must have a coarse z motor and it must be working and the units must be in microns
-    % 
+    %
     %
     % Examples
     % 1) Record a 20 micron stack every 2 microns.
@@ -52,8 +52,8 @@ function record(varargin)
     params.CaseSensitive = false; % So we do not have to be case sensitive
     params.KeepUnmatched = true;
     params.addParameter('wavelength', [], @(x) isnumeric(x));
-    params.addParameter('framesToAverage', 100, @(x) isnumeric(x));
-    params.addParameter('stepSize', [], @(x) isnumeric(x));
+    params.addParameter('framesToAverage', 64, @(x) isnumeric(x));
+    params.addParameter('stepSize', 2, @(x) isnumeric(x));
     params.parse(varargin{:});
 
     laser_wavelength = params.Results.wavelength;
@@ -140,10 +140,10 @@ function record(varargin)
         API.hSI.hScan2D.logFileCounter=1;
 
         API.hSI.hStackManager.framesPerSlice = framesToAverage;
-        
+
         % We will average adjacent frames meaning final size on disk will be half what it would
         % otherwise be. On a typical resonant scanning rig that means 7 to 10 FPS (since we disable bidi)
-        API.hSI.hScan2D.logAverageFactor = 2; 
+        API.hSI.hScan2D.logAverageFactor = 2;
 
         API.hSI.hScan2D.bidirectional = 0; % disable bidi to avoid bidi artifacts in stacks
 
@@ -186,7 +186,7 @@ function record(varargin)
     end
 
 
-    % TODO -- apply this in a cleanup function 
+    % TODO -- apply this in a cleanup function
     reapplyScanImageSettings(API,initialSettings);
 
 end % zstack.record
