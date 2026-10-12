@@ -8,7 +8,9 @@ function header = read_SI_TIFF_header(fname)
     % in the event of failure.
     %
     % Inputs
-    % fname - relative or absolute path to a ScanImage TIFF stack on disk
+    % fname - relative or absolute path to a ScanImage TIFF stack on disk.
+    %         Alternatively, a Tiff object can be passed in, in which case the file
+    %         is not opened or closed and the metadata is read from the current page.
     %
     % Outputs
     % header - structure containing the data. Returns only data from the first frame.
@@ -18,18 +20,24 @@ function header = read_SI_TIFF_header(fname)
 
 
     header=[];
-    if ~exist(fname,'file')
-        fprintf('Can not find file %s\n', fname)
-        return
+
+    if isa(fname, 'Tiff')
+        t = fname;
+    else
+
+        if ~exist(fname,'file')
+            fprintf('Can not find file %s\n', fname)
+            return
+        end
+
+        % Open TIFF, and ensure it closes when this function exits
+        t = Tiff(fname);
+        cleanupObj = onCleanup(@() t.close());
+
     end
 
-    tmp=imfinfo(fname);
-
-    if isempty(tmp) || ~isstruct(tmp) || ~isfield(tmp,'Software')
-        return
-    end
-
-    header = parse_si_header(tmp(1),'Software');
+    tmp = struct('Software', t.getTag('Software'));
+    header = parse_si_header(tmp,'Software');
 
 end % read_SI_TIFF_header
 
