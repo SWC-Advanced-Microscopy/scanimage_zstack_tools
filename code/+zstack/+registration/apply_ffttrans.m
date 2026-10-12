@@ -87,15 +87,15 @@ function varargout=apply_ffttrans(movingStack,target,params)
 
         else
             if isstruct(target) & length(target)>1
-                tmpTarget=target;
-            end
-
-            for ii=1:size(movingStack,3)
-                if isstruct(target) & length(target)>1
-                    target=tmpTarget(ii);
+                for ii=1:size(movingStack,3)
+                    [registered(:,:,ii),out(ii)]=...
+                        zstack.registration.apply_ffttrans(movingStack(:,:,ii),target(ii),p);
                 end
-                [registered(:,:,ii),out(ii)]=...
-                    zstack.registration.apply_ffttrans(movingStack(:,:,ii),target,p);
+            else
+                for ii=1:size(movingStack,3)
+                    [registered(:,:,ii),out(ii)]=...
+                        zstack.registration.apply_ffttrans(movingStack(:,:,ii),target,p);
+                end
             end
         end
 
