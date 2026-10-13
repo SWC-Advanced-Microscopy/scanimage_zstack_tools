@@ -19,7 +19,7 @@ function [registered_stack,reg_params] = register_plane(orig_stack)
     % Rob Campbell - SWC 2026
 
 
-    orig_mu = mean(orig_stack,3);
+    orig_mu = zstack.registration.averageCorrelatedFrames(orig_stack);
 
 
     % Do the registration
