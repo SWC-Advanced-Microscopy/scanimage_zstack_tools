@@ -1,7 +1,7 @@
 function avgFrame = averageCorrelatedFrames(frames, nCor)
 % Construct an appropriate target frame for within-slice registration.
 %
-% function avgFrame = zstack.registration.averageCorrelatedFrames(planarFrames)
+% function avgFrame = zstack.registration.averageCorrelatedFrames(frames, nCor)
 %
 % Purpose
 % Given time series frames from a z-slice, find the frame whose nCor best

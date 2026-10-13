@@ -245,7 +245,7 @@ for ii = 1:nZslices % Z
 
     % Perform registration on chosen channel.
     % Store the registration parameters to be applied to the other channels.
-    [registeredChannel, reg_params_out] = zstack.registration.register_plane(thisZslice(:, :, :, chan_idx));
+    [registeredChannel, reg_params_out] = zstack.registration.register_plane(thisZslice(:, :, :, chan_idx), true);
     outStack(:, :, ii, chan_idx) = int16(mean(registeredChannel, 3));
     reg_coeffs(:,ii) = reg_params_out.coef;
 
