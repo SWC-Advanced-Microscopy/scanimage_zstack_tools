@@ -1,4 +1,4 @@
-function [registered_stack,reg_params] = register_plane(orig_stack, refine)
+function [registered_stack,reg_params] = register_plane(orig_stack, refine, sigma)
     % Conduct the registration on one plane
     %
     % function [registered_stack,reg_params] = zstack.registration.register_plane(orig_stack, refine)
@@ -20,19 +20,44 @@ function [registered_stack,reg_params] = register_plane(orig_stack, refine)
     %
     % Rob Campbell - SWC 2026
 
+    % Our registration steps involve:
+    %
+    % - (optionally) blurring the frames to reduce noise
+    % - averaging the most highly correlated frames to use as an initial target for registration
+    % - calculating and applying the registration shifts to the blurred frames
+    % - (optionally) refining the registration using the mean of the registered frames as a new target
+    % - applying the final registration shifts to the original frames
+    %
+    % We have found that each of these steps can help reduce the impact of noise, artifacts, and
+    % outlier frames. I.e., the registration is less likely to get "stuck" at 0 (as observed with
+    % some noisy data) or jump erratically.
+
     if nargin < 2
         refine = false;
     end
 
-    orig_mu = zstack.registration.averageCorrelatedFrames(orig_stack);
+    if nargin < 3
+        sigma = 0;
+    end
 
-    % Do the registration
-    [registered_stack,reg_params] = zstack.registration.apply_ffttrans(orig_stack,orig_mu);
+    if sigma > 0
+        stack = imgaussfilt(double(orig_stack), sigma);
+    else
+        stack = double(orig_stack);
+    end
+
+    orig_mu = zstack.registration.averageCorrelatedFrames(stack);
+    [unrefined_stack,reg_params] = zstack.registration.apply_ffttrans(stack,orig_mu);
 
     if refine
         % Refine the registration using the mean of the registered frames
-        refined_mu = mean(registered_stack, 3);
-        [registered_stack,reg_params] = zstack.registration.apply_ffttrans(orig_stack,refined_mu);
+        refined_mu = mean(unrefined_stack, 3);
+        [~,reg_params] = zstack.registration.apply_ffttrans(stack,refined_mu);
     end
+
+    % Apply the shifts to the original frames.
+    % NB. If we didn't blur or refine, registered_stack will be the same as unrefined_stack.
+    %     (Re)apply the shifts to the original frames unconditionally anyway - it's cheap.
+    registered_stack = zstack.registration.apply_ffttrans(orig_stack,reg_params.coef);
 
 end % register_plane
