@@ -1,7 +1,7 @@
 function [registered_stack,reg_params] = register_plane(orig_stack, refine, sigma)
     % Conduct the registration on one plane
     %
-    % function [registered_stack,reg_params] = zstack.registration.register_plane(orig_stack, refine)
+    % function [registered_stack,reg_params] = zstack.registration.register_plane(orig_stack, refine, sigma)
     %
     % Purpose
     % Register all frames from one plane to a representative average of that plane.
@@ -12,6 +12,8 @@ function [registered_stack,reg_params] = register_plane(orig_stack, refine, sigm
     % orig_stack - all frames from one plane.
     % refine - [optional] boolean flag to indicate whether to refine the registration
     %          using the mean of the registered frames. Default: false.
+    % sigma - [optional] standard deviation of Gaussian filter to apply to the frames
+    %         during registration. Default: 0 (no filtering).
     %
     % Outputs
     % registered_stack - the registered frames.
@@ -32,11 +34,11 @@ function [registered_stack,reg_params] = register_plane(orig_stack, refine, sigm
     % outlier frames. I.e., the registration is less likely to get "stuck" at 0 (as observed with
     % some noisy data) or jump erratically.
 
-    if nargin < 2
+    if nargin < 2 || isempty(refine)
         refine = false;
     end
 
-    if nargin < 3
+    if nargin < 3 || isempty(sigma)
         sigma = 0;
     end
 

@@ -1,4 +1,4 @@
-function [out, channels] = zplanes2stack(fname,chan,freq_cutoff)
+function [out, channels] = zplanes2stack(fname,chan,freq_cutoff, refine, sigma)
 % Build a fully-registered z-stack from a multi-plane series.
 %
 % function [out, channels] = zstack.zplanes2stack(fname,chan,freq_cutoff)
@@ -18,6 +18,10 @@ function [out, channels] = zplanes2stack(fname,chan,freq_cutoff)
 % anything else touches them. This is off by default. Filtering here rather
 % than within the registration keeps all channels treated identically.
 %
+% Additional refinement and blurring options are available to improve the
+% registration step for noisy data. See the `register_plane` function for
+% details.
+%
 % Inputs
 % fname - relative or absolute path to a ScanImage TIFF stack on disk.
 % chan - the channel used to calculate the registration.
@@ -26,7 +30,11 @@ function [out, channels] = zplanes2stack(fname,chan,freq_cutoff)
 %               filtering is done, which is the default. A value of about
 %               0.015 filters very low frequencies. The filter is not enabled
 %               by default because it needs more work.
-%
+% refine      - [optional] boolean flag to indicate whether to refine the 
+%               registration using the mean of the registered frames.
+%               Default: false.
+% sigma      - [optional] standard deviation of Gaussian filter to apply to
+%               the frames during registration. Default: 0 (no filtering).
 % Outputs
 % out - a 4D array (Y, X, Z, channel) containing the registered z-stack.
 % channels - a 1D array containing the channel numbers corresponding to the
@@ -41,8 +49,16 @@ function [out, channels] = zplanes2stack(fname,chan,freq_cutoff)
 % >> OUT = zstack.zplanes2stack('myUnregisteredZstack.tif',1,0.015);
 
 
-if nargin<3
+if nargin<3 || isempty(freq_cutoff)
     freq_cutoff = 0; % No filtering by default
+end
+
+if nargin < 4 || isempty(refine)
+    refine = false; % No refinement by default
+end
+
+if nargin < 5 || isempty(sigma)
+    sigma = 0; % No blurring by default
 end
 
 out = [] ; % in case of an error
@@ -245,7 +261,11 @@ for ii = 1:nZslices % Z
 
     % Perform registration on chosen channel.
     % Store the registration parameters to be applied to the other channels.
-    [registeredChannel, reg_params_out] = zstack.registration.register_plane(thisZslice(:, :, :, chan_idx), true);
+    [registeredChannel, reg_params_out] = zstack.registration.register_plane( ...
+        thisZslice(:, :, :, chan_idx), ...
+        refine, ...
+        sigma ...
+        );
     outStack(:, :, ii, chan_idx) = int16(mean(registeredChannel, 3));
     reg_coeffs(:,ii) = reg_params_out.coef;
 
