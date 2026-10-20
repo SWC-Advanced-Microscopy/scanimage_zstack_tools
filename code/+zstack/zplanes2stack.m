@@ -1,7 +1,7 @@
-function [out, channels] = zplanes2stack(fname,chan,freq_cutoff, refine, sigma, needsBidiCorrection)
+function [out, channels] = zplanes2stack(fname, chan, opts)
 % Build a fully-registered z-stack from a multi-plane series.
 %
-% function [out, channels] = zstack.zplanes2stack(fname,chan,freq_cutoff, refine, sigma, needsBidiCorrection)
+% function [out, channels] = zstack.zplanes2stack(fname, chan, Name=Value)
 %
 % Purpose
 % Feed in an unregistered set of z-planes in ZTCYX format (e.g., such that
@@ -22,24 +22,26 @@ function [out, channels] = zplanes2stack(fname,chan,freq_cutoff, refine, sigma, 
 % registration step for noisy data. See the `register_plane` function for
 % details.
 %
-% If bidirectional scanning correction is required, set `needsBidiCorrection`
-% to true. This will calculate the required shift (up to +-9 pixels) and apply
-% it to the stack before registration.
+% If bidirectional scanning correction is required, set
+% needsBidiCorrection=true. This will calculate the required shift (up to
+% +-9 pixels) and apply it to the stack before registration.
 %
 % Inputs
 % fname - relative or absolute path to a ScanImage TIFF stack on disk.
 % chan - the channel used to calculate the registration.
-% freq_cutoff - [optional] frequency threshold in cycles per image for the
-%               high-pass filter applied to each channel. If zero or empty no
+%
+% Optional name-value arguments
+% freq_cutoff - frequency threshold in cycles per image for the
+%               high-pass filter applied to each channel. If zero no
 %               filtering is done, which is the default. A value of about
 %               0.015 filters very low frequencies. The filter is not enabled
 %               by default because it needs more work.
-% refine      - [optional] boolean flag to indicate whether to refine the 
+% refine      - boolean flag to indicate whether to refine the 
 %               registration using the mean of the registered frames.
 %               Default: false.
-% sigma      - [optional] standard deviation of Gaussian filter to apply to
+% sigma       - standard deviation of Gaussian filter to apply to
 %               the frames during registration. Default: 0 (no filtering).
-% needsBidiCorrection - [optional] boolean flag to indicate whether the
+% needsBidiCorrection - boolean flag to indicate whether the
 %                       image stack requires bidirectional scanning correction.
 %                       Default: false.
 % Outputs
@@ -53,35 +55,24 @@ function [out, channels] = zplanes2stack(fname,chan,freq_cutoff, refine, sigma, 
 % >> OUT = zstack.zplanes2stack('myUnregisteredZstack.tif',1);
 %
 % - The same, but high-pass filter the data first
-% >> OUT = zstack.zplanes2stack('myUnregisteredZstack.tif',1,0.015);
-
-
-if nargin<3 || isempty(freq_cutoff)
-    freq_cutoff = 0; % No filtering by default
+% >> OUT = zstack.zplanes2stack('myUnregisteredZstack.tif',1,freq_cutoff=0.015);
+arguments
+    fname {mustBeFile}
+    chan (1, 1) {mustBeInteger, mustBePositive}
+    opts.freq_cutoff (1, 1) double {mustBeNonnegative} = 0
+    opts.refine (1, 1) logical = false
+    opts.sigma (1, 1) double {mustBeNonnegative} = 0
+    opts.needsBidiCorrection (1, 1) logical = false
 end
 
-if nargin < 4 || isempty(refine)
-    refine = false; % No refinement by default
-end
-
-if nargin < 5 || isempty(sigma)
-    sigma = 0; % No blurring by default
-end
-
-if nargin < 6 || isempty(needsBidiCorrection)
-    needsBidiCorrection = false; % No bidirectional scanning correction by default
-end
+% Record all argument values (including defaults) in the command window.
+fprintf('zplanes2stack: %s, chan %d\n', fname, chan); disp(opts)
 
 out = [] ; % in case of an error
 
 % Preemptively promote fname to a cell array in case our stack is split
 % across multiple files.
 fname = {fname};
-
-if isempty(fname{1}) || ~exist(fname{1},'file')
-    fprintf('File %s does not exist\n', fname{1})
-    return
-end
 
 %% Open TIFF and collect ScanImage metadata
 
@@ -202,7 +193,7 @@ end
 
 % Find shifts for bidirectional scanning correction, if requested.
 bidishiftpixels = 0;
-if needsBidiCorrection
+if opts.needsBidiCorrection
         
     fprintf('Calculating shift required for bidirectional scanning correction.\n')
 
@@ -331,9 +322,9 @@ for ii = 1:nZslices % Z
     thisZslice = thisZslice(:, uncroppedCols,  :, :);
 
     % Apply filtering to all channels
-    if freq_cutoff > 0
+    if opts.freq_cutoff > 0
         for kk = 1:nChannels
-            thisZslice(:, :, :, kk) = zstack.filtering.suppressLowFreq(thisZslice(:, :, :, kk), freq_cutoff);
+            thisZslice(:, :, :, kk) = zstack.filtering.suppressLowFreq(thisZslice(:, :, :, kk), opts.freq_cutoff);
         end
     end
 
@@ -341,8 +332,8 @@ for ii = 1:nZslices % Z
     % Store the registration parameters to be applied to the other channels.
     [registeredChannel, reg_params_out] = zstack.registration.register_plane( ...
         thisZslice(:, :, :, chan_idx), ...
-        refine, ...
-        sigma ...
+        opts.refine, ...
+        opts.sigma ...
         );
     outStack(:, :, ii, chan_idx) = int16(mean(registeredChannel, 3));
     reg_coeffs(:,ii) = reg_params_out.coef;
