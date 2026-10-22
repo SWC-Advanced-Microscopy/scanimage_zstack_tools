@@ -21,9 +21,9 @@ To save data there is currently no elegant writer function, just do:
  zstack.io.writeSignedTiff(int16(OUT(2).mean_z),'zstack_green_chan.tiff')
  ```
 
-Note: 1) The need to cast as int16. 2) In this case the first index is red and the second is green. Your data may be different. 
-It won't write otherwise and ScanImage writes data as signed ints.
-
+Note: 
+1. The need to cast as int16. ScanImage writes as signed ints.
+2. In this case the first index is the red channel and the second is the green channel. This is rig-dependent and yours could be the other way around or you may even have more than two channels. 
 
 # Recording a zstack easily in ScanImage
 Use the tool `zstack.record`. Instructions: `help zstack.record`
