@@ -1,7 +1,7 @@
-function [out, channels] = zplanes2stack(fname,chan,freq_cutoff, refine, sigma)
+function [out, channels] = zplanes2stack(fname,chan,freq_cutoff, refine, sigma, needsBidiCorrection)
 % Build a fully-registered z-stack from a multi-plane series.
 %
-% function [out, channels] = zstack.zplanes2stack(fname,chan,freq_cutoff)
+% function [out, channels] = zstack.zplanes2stack(fname,chan,freq_cutoff, refine, sigma, needsBidiCorrection)
 %
 % Purpose
 % Feed in an unregistered set of z-planes in ZTCYX format (e.g., such that
@@ -22,6 +22,10 @@ function [out, channels] = zplanes2stack(fname,chan,freq_cutoff, refine, sigma)
 % registration step for noisy data. See the `register_plane` function for
 % details.
 %
+% If bidirectional scanning correction is required, set `needsBidiCorrection`
+% to true. This will calculate the required shift (up to +-9 pixels) and apply
+% it to the stack before registration.
+%
 % Inputs
 % fname - relative or absolute path to a ScanImage TIFF stack on disk.
 % chan - the channel used to calculate the registration.
@@ -35,6 +39,9 @@ function [out, channels] = zplanes2stack(fname,chan,freq_cutoff, refine, sigma)
 %               Default: false.
 % sigma      - [optional] standard deviation of Gaussian filter to apply to
 %               the frames during registration. Default: 0 (no filtering).
+% needsBidiCorrection - [optional] boolean flag to indicate whether the
+%                       image stack requires bidirectional scanning correction.
+%                       Default: false.
 % Outputs
 % out - a 4D array (Y, X, Z, channel) containing the registered z-stack.
 % channels - a 1D array containing the channel numbers corresponding to the
@@ -59,6 +66,10 @@ end
 
 if nargin < 5 || isempty(sigma)
     sigma = 0; % No blurring by default
+end
+
+if nargin < 6 || isempty(needsBidiCorrection)
+    needsBidiCorrection = false; % No bidirectional scanning correction by default
 end
 
 out = [] ; % in case of an error
@@ -189,6 +200,66 @@ end
 % Registration within a slice is incremental, so we can do away with old
 % pages once we've read them.
 
+% Find shifts for bidirectional scanning correction, if requested.
+bidishiftpixels = 0;
+if needsBidiCorrection
+        
+    fprintf('Calculating shift required for bidirectional scanning correction.\n')
+
+    % Grab a TIFF from about half way through the stack.
+    % Use ceil to avoid a 0 index if we have only one file.
+    bidiFile = ceil(length(fname)/2);
+    tf = Tiff(fname{bidiFile});
+
+    % Make sure we use the correct channel
+    n = 1;
+    while ~tf.lastDirectory() && n ~= chan_idx
+        tf.nextDirectory();
+        n = n + 1;
+    end
+
+    % Read up to 10 frames
+    bidiFrames = zeros( ...
+        metadata.ImageLength, ...
+        metadata.ImageWidth, ...
+        10, ...
+        'double' ...
+        );
+
+    n = 0;
+    while ~tf.lastDirectory() && n < 10
+        
+        n = n + 1;
+        bidiFrames(:, :, n) = tf.read();
+
+        for ii = 1:nChannels
+            if ~tf.lastDirectory()
+                tf.nextDirectory();
+            end
+        end
+
+    end
+
+    % If we read fewer than 10 frames, drop data to avoid including in mean
+    bidiFrames = bidiFrames(:, :, 1:n);
+
+    % Calculate shifts on even lines of the averaged image.
+    meanBidiFrame = mean(bidiFrames, 3);
+    [~, stats] = zstack.bidi.getShift(meanBidiFrame, metadata, true, true);
+
+    bidishiftpixels = stats.shiftAmnt;
+
+    if ~isnan(bidishiftpixels)
+        fprintf('Shift is %d\n', bidishiftpixels)
+    else
+        fprintf('No meaningful shift calculated\n')
+        bidishiftpixels = 0;
+    end
+
+    tf.close();
+
+end
+
 % Calculate edge cropping
 cropEdgePixels = round(metadata.ImageWidth*0.058);
 uncroppedCols = cropEdgePixels + 1 : metadata.ImageWidth - cropEdgePixels;
@@ -249,7 +320,14 @@ for ii = 1:nZslices % Z
         end
     end
 
-    % Crop artefacts from image edges prior to performing the registration
+    % Apply bidirectional scanning correction to even lines.
+    if bidishiftpixels ~= 0
+        evenRows = thisZslice(2:2:end,:,:,:);
+        evenRows = circshift(evenRows,[0, bidishiftpixels, 0, 0]);
+        thisZslice(2:2:end,:,:,:) = evenRows;
+    end
+
+    % Crop artefacts from image edges.
     thisZslice = thisZslice(:, uncroppedCols,  :, :);
 
     % Apply filtering to all channels
