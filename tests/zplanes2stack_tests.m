@@ -112,6 +112,22 @@ classdef zplanes2stack_tests < matlab.unittest.TestCase
     end % methods(Static)
 
 
+    methods
+        function folder = newFolder(obj, name)
+            % A fresh output folder per test, so each holds one run's log
+            folder = fullfile(obj.fixtureDir, name);
+            mkdir(folder);
+        end
+
+        function txt = readLog(obj, folder)
+            % Text of the single zplanes2tiff log in folder
+            d = dir(fullfile(folder, 'zplanes2tiff_*.log'));
+            obj.assertNumElements(d, 1, sprintf('Expected one zplanes2tiff log in %s', folder))
+            txt = fileread(fullfile(folder, d.name));
+        end
+    end % methods
+
+
     methods (Test)
         function headerHasRequestedSIFields(obj)
             requested = { ...
@@ -158,10 +174,88 @@ classdef zplanes2stack_tests < matlab.unittest.TestCase
         function missingFieldsAreReported(obj)
             r = obj.runs.renamed;
             obj.verifyNotEmpty(r.out, 'A missing header field stopped the run')
-            obj.verifyTrue(contains(r.log, 'Not found') && contains(r.log, 'SI.hStackManager.numSlices'), ...
+            obj.verifyTrue(contains(r.log, 'not present in the ScanImage header') && contains(r.log, 'SI.hStackManager.numSlices'), ...
                 'The missing field was not named in the printed output')
             obj.verifyFalse(contains(r.header, 'SI.hStackManager.numSlices'), ...
                 'The missing field appeared in the header anyway')
+        end
+
+
+        % zplanes2tiff's run log. These call zplanes2tiff directly rather than
+        % through evalc, because output captured by evalc may not reach the diary.
+
+        function logRecordsSuccessfulRun(obj)
+            folder = obj.newFolder('logSuccess');
+            zstack.zplanes2tiff(fullfile(obj.fixtureDir, 'stack.tif'), 1, ...
+                {fullfile(folder, 'a.tiff'), fullfile(folder, 'b.tiff')});
+            txt = obj.readLog(folder);
+            expected = {'zplanes2tiff started', 'Registering slice 3 of 3', 'Result: SUCCESS'};
+            for ii = 1:length(expected)
+                obj.verifyTrue(contains(txt, expected{ii}), ...
+                    sprintf('"%s" is missing from the log', expected{ii}))
+            end
+        end
+
+        function logRecordsFailedRun(obj)
+            folder = obj.newFolder('logFailed');
+            fclose(fopen(fullfile(folder, 'a.tiff'), 'w')); % an output that already exists
+            zstack.zplanes2tiff(fullfile(obj.fixtureDir, 'stack.tif'), 1, ...
+                {fullfile(folder, 'a.tiff'), fullfile(folder, 'b.tiff')});
+            txt = obj.readLog(folder);
+            obj.verifyTrue(contains(txt, 'already exists') && contains(txt, 'Result: FAILED'), ...
+                'The log does not record the refused run as a failure, with its reason')
+            obj.verifyFalse(isfile(fullfile(folder, 'b.tiff')), 'A refused run saved output')
+        end
+
+        function logRecordsError(obj)
+            folder = obj.newFolder('logError');
+            badFile = fullfile(folder, 'noheader.tif'); % a TIFF with no ScanImage header
+            t = Tiff(badFile, 'w');
+            t.setTag(struct('ImageLength', 8, 'ImageWidth', 8, 'BitsPerSample', 8, ...
+                'SamplesPerPixel', 1, 'Photometric', Tiff.Photometric.MinIsBlack, ...
+                'PlanarConfiguration', Tiff.PlanarConfiguration.Chunky));
+            t.write(zeros(8, 'uint8'));
+            t.close();
+
+            errored = false;
+            try
+                zstack.zplanes2tiff(badFile, 1, {fullfile(folder, 'a.tiff')});
+            catch
+                errored = true;
+            end
+            obj.verifyTrue(errored, 'The error was not re-thrown')
+            txt = obj.readLog(folder);
+            obj.verifyTrue(contains(txt, 'Result: ERROR'), 'The log does not record the error')
+            obj.verifyTrue(contains(txt, 'registerAndSave'), ...
+                'The log does not say where the error happened')
+            obj.verifyFalse(contains(txt, 'matlab.unittest'), ...
+                'The log lists stack frames from below zplanes2tiff')
+        end
+
+        function previousDiaryIsPausedAndRestored(obj)
+            folder = obj.newFolder('logDiary');
+            previous = fullfile(folder, 'previous.log');
+            diary(previous)
+            stopDiary = onCleanup(@() diary('off'));
+
+            fclose(fopen(fullfile(folder, 'a.tiff'), 'w')); % a quick, refused run
+            zstack.zplanes2tiff(fullfile(obj.fixtureDir, 'stack.tif'), 1, ...
+                {fullfile(folder, 'a.tiff'), fullfile(folder, 'b.tiff')});
+
+            obj.verifyEqual(get(0, 'Diary'), 'on', 'The previous diary was left off')
+            obj.verifyEqual(get(0, 'DiaryFile'), previous, 'The previous diary file was not restored')
+            diary('off')
+            obj.verifyFalse(contains(fileread(previous), 'already exists'), ...
+                'The run was written to the previous diary instead of its own log')
+        end
+
+        function missingOutputFolderIsRefused(obj)
+            noFolder = fullfile(obj.fixtureDir, 'noSuchFolder');
+            [printed, out] = evalc(['zstack.zplanes2tiff(fullfile(obj.fixtureDir, ''stack.tif''), 1, ' ...
+                '{fullfile(noFolder, ''a.tiff''), fullfile(noFolder, ''b.tiff'')})']);
+            obj.verifyEmpty(out, 'A run with a missing output folder went ahead')
+            obj.verifyTrue(contains(printed, 'does not exist') && contains(printed, 'noSuchFolder'), ...
+                'The missing folder was not named')
         end
     end % methods (Test)
 

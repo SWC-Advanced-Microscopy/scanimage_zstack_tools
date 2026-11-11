@@ -38,6 +38,8 @@ output file per saved channel, in the order ScanImage saved them.
 Each file's `Software` tag holds the acquisition settings, the inputs used and values derived
 during the run; see `help zstack.zplanes2stack`.
 To get the registered stack without saving it, use `zstack.zplanes2stack(filename, 2)`.
+Each run is logged to `zplanes2tiff_<date>_<time>.log` beside the first output file, ending with a
+`Result:` line (SUCCESS, FAILED or ERROR).
 
 
 # Recording a zstack easily in ScanImage
