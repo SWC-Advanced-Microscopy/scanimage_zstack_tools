@@ -52,7 +52,11 @@ function [out, channels, header] = zplanes2stack(fname, chan, opts)
 %          "name = value" format. It holds, in order:
 %          - SI.*: acquisition settings that apply to every channel,
 %            copied from the ScanImage header. Per-channel settings (e.g.
-%            channel offsets, PMT gains) are not included.
+%            channel offsets, PMT gains) are not included. Any requested
+%            field not found in the ScanImage header is named in the
+%            command window and left out.
+%          - epoch: the acquisition date and time, copied from the first
+%            frame's ImageDescription.
 %          - zplanes2stack.input.*: the inputs to this function.
 %          - zplanes2stack.derived.*: values describing `out`: the slices
 %            kept, the edge crop, the pixel size and the bidirectional
@@ -91,10 +95,13 @@ header = '';
 fname = {fname};
 
 %% Open TIFF and collect ScanImage metadata
-
+%  We read both the 'Software' tag, containing metadata for the entire acquisition,
+%  as well as the *first* frame's 'ImageDescription'. We need the latter so that
+%  we can extract the acquisition date (which is per-frame, but one will do).
 t = Tiff(fname{1});
 metadata = zstack.io.read_SI_TIFF_header(t);
-siHeader = t.getTag('Software'); % Raw text, from which the output header is built
+siHeader = t.getTag('Software');
+frameDesc = t.getTag('ImageDescription');
 
 % Append ImageWidth and ImageLength tags to metadata.
 % These are mandatory TIFF tags; not part of the Software tag that
@@ -414,9 +421,28 @@ siFields = { ...
     'SI.hRoiManager.scanZoomFactor', ...
     'SI.hRoiManager.scanFrameRate', ...
     'SI.hRoiManager.imagingFovUm', ...
+    'SI.hMotors.axesPosition', ...
+    'SI.hStackManager.stackStartPowerFraction', ...
+    'SI.hStackManager.stackEndPowerFraction', ...
     };
 siLines = splitlines(siHeader);
 siLines = siLines(startsWith(siLines, append(siFields, ' = ')));
+
+% The acquisition date is per-frame data, so it comes from the first frame's
+% ImageDescription rather than the Software tag.
+epochLine = splitlines(frameDesc);
+epochLine = epochLine(startsWith(epochLine, 'epoch = '));
+
+% Name any requested field that wasn't found.
+% E.g., to catch any potential renaming of fields between different
+% versions of ScanImage and report this problem to the user.
+missing = setdiff(siFields, extractBefore(siLines, ' = '), 'stable');
+if isempty(epochLine)
+    missing{end+1} = 'epoch';
+end
+if ~isempty(missing)
+    fprintf('The following were not present in the ScanImage header and have not been saved: %s\n', strjoin(missing(:)', ', '))
+end
 
 % Then add the inputs to this function, named as its arguments, so the run
 % can be repeated.
@@ -445,7 +471,7 @@ derivedLines = sprintf([ ...
     'zplanes2stack.derived.bidiShiftPixels = %d\n'], ...
     nZslices, cropEdgePixels, pixelSizeUm, bidishiftpixels);
 
-header = [sprintf('%s\n', siLines{:}), inputLines, derivedLines];
+header = [sprintf('%s\n', siLines{:}), sprintf('%s\n', epochLine{:}), inputLines, derivedLines];
 
 out = outStack;
 channels = savedChannelID;
