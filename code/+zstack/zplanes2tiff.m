@@ -13,11 +13,12 @@ function [out, channels, header] = zplanes2tiff(fname, chan, outFiles, varargin)
 % mistake there doesn't waste a long run.
 %
 % Each run is logged: everything printed to the command window goes to
-% zplanes2tiff_<date>_<time>.log in the folder of the first output file. The
-% log ends with one line giving the result: SUCCESS, FAILED (nothing saved;
-% the reason is printed above it) or ERROR (followed by the error being
-% raised as usual). A diary you already had running is paused for the run
-% and resumed afterwards.
+% zplanes2tiff_<date>_<time>.log in the folder of the first output file.
+% The log starts with this toolbox's git commit (flagging uncommitted
+% changes) and ends with one line giving the result: SUCCESS, FAILED
+% (nothing saved; the reason is printed above it) or ERROR (followed by the
+% error being raised as usual). A diary you already had running is paused
+% for the run and resumed afterwards.
 %
 % Inputs
 % fname - relative or absolute path to a ScanImage TIFF stack on disk.
@@ -72,6 +73,23 @@ diary(logFile)
 
 [~, host] = system('hostname');
 fprintf('zplanes2tiff started %s on %s, MATLAB %s\n', char(datetime('now')), strtrim(host), version)
+
+% Record which version of this toolbox did the work. git may not be
+% installed (e.g. on a Windows rig), so fall back to 'unknown'.
+% MATLAB's gitrepo would avoid needing the git program, but it is only
+% available from R2023b.
+toolboxRoot = fileparts(fileparts(fileparts(mfilename('fullpath'))));
+[status, commit] = system(sprintf('git -C "%s" rev-parse --short HEAD', toolboxRoot));
+if status == 0
+    commit = strtrim(commit);
+    [~, changes] = system(sprintf('git -C "%s" status --porcelain --untracked-files=no', toolboxRoot));
+    if ~isempty(strtrim(changes))
+        commit = [commit ' (with uncommitted changes)'];
+    end
+else
+    commit = 'unknown (git not available)';
+end
+fprintf('Toolbox commit: %s\n', commit)
 fprintf('Input: %s, chan %d, outputs: %s\n', fname, chan, strjoin(outFiles, ', '))
 startTime = tic;
 elapsed = @() char(duration(0, 0, toc(startTime), 'Format', 'hh:mm:ss'));

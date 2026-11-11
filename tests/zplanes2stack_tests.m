@@ -249,6 +249,24 @@ classdef zplanes2stack_tests < matlab.unittest.TestCase
                 'The run was written to the previous diary instead of its own log')
         end
 
+        function logRecordsToolboxCommit(obj)
+            % The log names the toolbox's git commit, flagging uncommitted changes
+            toolboxRoot = fileparts(fileparts(mfilename('fullpath'))); % tests/ is in the toolbox root
+            [status, expected] = system(sprintf('git -C "%s" rev-parse --short HEAD', toolboxRoot));
+            obj.assumeEqual(status, 0, 'git is not available, so the commit cannot be checked')
+            [~, changes] = system(sprintf('git -C "%s" status --porcelain --untracked-files=no', toolboxRoot));
+
+            folder = obj.newFolder('logCommit');
+            zstack.zplanes2tiff(fullfile(obj.fixtureDir, 'stack.tif'), 1, ...
+                {fullfile(folder, 'a.tiff'), fullfile(folder, 'b.tiff')});
+            txt = obj.readLog(folder);
+
+            obj.verifyTrue(contains(txt, ['Toolbox commit: ' strtrim(expected)]), ...
+                'The log does not name the toolbox commit')
+            obj.verifyEqual(contains(txt, 'with uncommitted changes'), ~isempty(strtrim(changes)), ...
+                'The uncommitted-changes note does not match the state of the working tree')
+        end
+
         function missingOutputFolderIsRefused(obj)
             noFolder = fullfile(obj.fixtureDir, 'noSuchFolder');
             [printed, out] = evalc(['zstack.zplanes2tiff(fullfile(obj.fixtureDir, ''stack.tif''), 1, ' ...
