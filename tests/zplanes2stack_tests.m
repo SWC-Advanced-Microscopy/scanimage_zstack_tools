@@ -299,6 +299,21 @@ classdef zplanes2stack_tests < matlab.unittest.TestCase
                 'Outputs were missing when names were given as a column')
         end
 
+        function fileElsewhereOnPathDoesNotBlockSaving(obj)
+            % A file of the same name in a folder on the MATLAB path isn't the
+            % output file, so it mustn't stop the save (it once did, after
+            % registration had run)
+            onPath = obj.newFolder('onPath');
+            fclose(fopen(fullfile(onPath, 'a.tiff'), 'w'));
+            obj.applyFixture(matlab.unittest.fixtures.PathFixture(onPath));
+            runHere = obj.newFolder('runHere');
+            obj.applyFixture(matlab.unittest.fixtures.CurrentFolderFixture(runHere));
+
+            zstack.zplanes2tiff(fullfile(obj.fixtureDir, 'stack.tif'), 1, {'a.tiff', 'b.tiff'});
+            obj.verifyTrue(isfile(fullfile(runHere, 'a.tiff')) && isfile(fullfile(runHere, 'b.tiff')), ...
+                'The outputs were not saved in the current folder')
+        end
+
         function outputsUnchanged(obj)
             % Saving must not change the registered stack itself
             folder = obj.newFolder('unchanged');

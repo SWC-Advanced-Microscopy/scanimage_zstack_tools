@@ -32,7 +32,7 @@ function writeSignedTiff(vnData, sTarget, sSoftware, bOverwrite)
 
 
     % Check for target
-    if ~bOverwrite && exist(sTarget, 'file')
+    if ~bOverwrite && isfile(sTarget)
         error('File already exists. Use bOverwrite or change target')
     end
 
