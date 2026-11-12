@@ -527,25 +527,24 @@ meta.zplanes2stack.derived.bidiShiftPixels = bidishiftpixels;
 % (e.g., frames  1, 101, 201, ... for a stack with 100 frames per slice). 
 % These are indexed with the header's framesPerSlice, the number of
 % frames *acquired*, which is more than the number saved when ScanImage
-% averages frames (logAverageFactor > 1). If the line is missing
-% (e.g. another ScanImage version), or holds fewer values than expected
-% (which *might* be the case if it counts frames *saved* rather than
-% *acquired* when frames are averaged with logAverageFactor > 1?...),
-% say so and leave zUm as NaN rather than stopping.
+% averages frames (logAverageFactor > 1). If the line is missing (e.g.
+% another ScanImage version), say so and leave zUm as NaN rather than
+% stopping. Do the same when frames were averaged: it isn't yet known
+% whether zs then counts frames acquired or saved, so indexing it might
+% give the wrong positions.
 zUm = nan(nZslices, 1);
 zsLine = splitlines(siHeader);
 zsLine = zsLine(startsWith(zsLine, 'SI.hStackManager.zs = '));
 firstFrames = (0:nZslices-1)' * metadata.framesPerSlice + 1;
 if isempty(zsLine)
     fprintf('SI.hStackManager.zs is not in the ScanImage header, so the slice table''s zUm is NaN.\n')
+elseif metadata.logAverageFactor ~= 1
+    fprintf(['Frames were saved averaged (logAverageFactor = %d), and it isn''t yet known whether ' ...
+        'SI.hStackManager.zs then counts frames acquired or saved, so the slice table''s zUm is NaN.\n'], ...
+        metadata.logAverageFactor)
 else
     [~, zs] = parseHeaderLine(zsLine{1});
-    if numel(zs) >= firstFrames(end)
-        zUm = reshape(zs(firstFrames), [], 1); % zs is a row; table columns are columns
-    else
-        fprintf(['SI.hStackManager.zs has %d values, too few for %d slices of %d frames, ' ...
-            'so the slice table''s zUm is NaN.\n'], numel(zs), nZslices, metadata.framesPerSlice)
-    end
+    zUm = reshape(zs(firstFrames), [], 1); % zs is a row; table columns are columns
 end
 
 % framesAtZeroShiftWithinSlice: from the *within*-slice registration.
