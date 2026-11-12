@@ -315,6 +315,17 @@ classdef zplanes2stack_tests < matlab.unittest.TestCase
             obj.verifyTrue(contains(r.log, 'zUm is NaN'), 'The reason zUm is NaN was not reported')
         end
 
+        function noCompleteSlicesFailsCleanly(obj)
+            % The header says 12 frames per slice, but only 6 frames' pages
+            % were recorded, so not even the first slice is complete
+            f = fullfile(obj.fixtureDir, 'noslices.tif');
+            header = strrep(zplanes2stack_tests.fakeHeader(), 'framesPerSlice = 6', 'framesPerSlice = 12');
+            zplanes2stack_tests.writeFakeStack(f, header, 0, [1 2 2]);
+            [printed, out] = evalc('zstack.zplanes2stack(f, 1)');
+            obj.verifyEmpty(out, 'A stack with no complete slices returned output')
+            obj.verifyTrue(contains(printed, 'No complete slices'), 'The reason was not reported')
+        end
+
         function stepRecordsKnownShift(obj)
             % Slice 3's content is 3 px to the right of slice 2's, so the
             % correction applied to it is 3 px to the left

@@ -230,6 +230,12 @@ if nComplete < nZslices
     fname = fname(1:ff);
 end
 
+% Nothing to register if not even the first slice is complete
+if nZslices == 0
+    fprintf('No complete slices to register.\n')
+    return
+end
+
 %% Load stack and register within slices
 % Two problems with our stack:
 % - It is split over multiple files
