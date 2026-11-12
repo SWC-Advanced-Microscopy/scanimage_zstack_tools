@@ -34,7 +34,7 @@ classdef zplanes2stack_tests < matlab.unittest.TestCase
                 'renamed',   strrep(header, 'SI.hStackManager.numSlices', 'SI.hStacks.numSlices'),    [0 0 3]; ...
                 'truncated', truncated,                                                                [0 0 3]; ...
                 'nozs',      regexprep(header, 'SI\.hStackManager\.zs = [^\n]*\n', ''),              [0 0 3]; ...
-                'shortzs',   strrep(header, mat2str(repelem([0 2 4], 6)), mat2str(repelem([0 2 4], 3))), [0 0 3]; ...
+                'averagedzs', strrep(header, 'logAverageFactor = 1', 'logAverageFactor = 2'),         [0 0 3]; ...
                 'bigstep',   header,                                                                   [0 0 12]};
 
             for ii = 1:size(stacks, 1)
@@ -299,14 +299,20 @@ classdef zplanes2stack_tests < matlab.unittest.TestCase
             obj.verifyFalse(contains(obj.runs.stack.log, 'zUm is NaN'), ...
                 'A problem with the z positions was reported when there was none')
 
-            % No z positions in the header, or too few for the slices kept
-            for name = {'nozs', 'shortzs'}
-                r = obj.runs.(name{1});
-                obj.verifyNotEmpty(r.out, sprintf('%s: a problem with the z positions stopped the run', name{1}))
-                obj.verifyTrue(all(isnan(r.slices.zUm)), sprintf('%s: zUm should be NaN', name{1}))
-                obj.verifyTrue(contains(r.log, 'zUm is NaN'), ...
-                    sprintf('%s: the problem with the z positions was not reported', name{1}))
-            end
+            % No z positions in the header
+            r = obj.runs.nozs;
+            obj.verifyNotEmpty(r.out, 'A header without z positions stopped the run')
+            obj.verifyTrue(all(isnan(r.slices.zUm)), 'zUm should be NaN without z positions')
+            obj.verifyTrue(contains(r.log, 'zUm is NaN'), 'The missing z positions were not reported')
+        end
+
+        function averagedStackHasNoZUm(obj)
+            % With frames saved averaged, it isn't yet known whether zs counts
+            % frames acquired or saved, so zUm is left as NaN and reported
+            r = obj.runs.averagedzs;
+            obj.verifyTrue(all(isnan(r.slices.zUm)), ...
+                sprintf('zUm should be NaN, not %s', mat2str(r.slices.zUm')))
+            obj.verifyTrue(contains(r.log, 'zUm is NaN'), 'The reason zUm is NaN was not reported')
         end
 
         function stepRecordsKnownShift(obj)
