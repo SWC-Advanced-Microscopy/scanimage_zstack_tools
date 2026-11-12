@@ -35,6 +35,7 @@ classdef zplanes2stack_tests < matlab.unittest.TestCase
                 'truncated', truncated,                                                                [0 0 3]; ...
                 'nozs',      regexprep(header, 'SI\.hStackManager\.zs = [^\n]*\n', ''),              [0 0 3]; ...
                 'averagedzs', strrep(header, 'logAverageFactor = 1', 'logAverageFactor = 2'),         [0 0 3]; ...
+                'accumulate', header,                                                                 [0 3 3]; ...
                 'bigstep',   header,                                                                   [0 0 12]};
 
             for ii = 1:size(stacks, 1)
@@ -333,8 +334,16 @@ classdef zplanes2stack_tests < matlab.unittest.TestCase
             obj.verifyEqual(slices.stepXPx(3), -3, 'AbsTol', 0.5, 'Slice 3''s step was not recovered')
             obj.verifyEqual(slices.stepXPx(2), 0, 'AbsTol', 0.5, 'Slice 2 should not have moved')
             obj.verifyEqual(slices.stepYPx, [0; 0; 0], 'AbsTol', 0.5, 'No slice moved in y')
-            obj.verifyEqual(slices.shiftXPx(3), slices.shiftXPx(2) + slices.stepXPx(3), 'AbsTol', 1e-9, ...
-                'The step is not the difference between consecutive shifts')
+        end
+
+        function shiftsAreRelativeToSlice1(obj)
+            % Slices 2 and 3 are both 3 px right of slice 1, so both are shifted
+            % back by 3 px; only slice 2 has moved from its neighbour
+            slices = obj.runs.accumulate.slices;
+            obj.verifyEqual(slices.shiftXPx, [0; -3; -3], 'AbsTol', 0.5, ...
+                'Shifts are not relative to slice 1')
+            obj.verifyEqual(slices.stepXPx, [0; -3; 0], 'AbsTol', 0.5, ...
+                'Steps are not relative to the previous slice')
         end
 
         function stuckFramesAreCounted(obj)
