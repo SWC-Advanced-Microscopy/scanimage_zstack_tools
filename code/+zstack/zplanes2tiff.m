@@ -196,7 +196,7 @@ end
 
 % Save the slice table, once for the stack
 fprintf('Saving slice table to %s\n', sliceFile)
-if endsWith(sliceFile, '.tsv')
+if endsWith(sliceFile, '.tsv', 'IgnoreCase', true)
     writetable(slices, sliceFile, 'FileType', 'text', 'Delimiter', '\t')
 else
     writetable(slices, sliceFile)

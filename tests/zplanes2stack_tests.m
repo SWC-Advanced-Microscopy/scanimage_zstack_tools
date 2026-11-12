@@ -382,6 +382,15 @@ classdef zplanes2stack_tests < matlab.unittest.TestCase
             obj.verifyTrue(contains(firstLine, sprintf('\t')), 'The .tsv file is not tab-separated')
         end
 
+        function tsvExtensionIgnoresCase(obj)
+            folder = obj.newFolder('sliceTsvUpper');
+            zstack.zplanes2tiff(fullfile(obj.fixtureDir, 'stack.tif'), 1, ...
+                {fullfile(folder, 'a.tiff'), fullfile(folder, 'b.tiff')}, 'sliceFile', fullfile(folder, 's.TSV'));
+            obj.assertTrue(isfile(fullfile(folder, 's.TSV')), 'No .TSV slice table was written')
+            firstLine = strtok(fileread(fullfile(folder, 's.TSV')), newline);
+            obj.verifyTrue(contains(firstLine, sprintf('\t')), 'The .TSV file is not tab-separated')
+        end
+
         function sliceTableDefaultsToSlicesCsv(obj)
             folder = obj.newFolder('sliceDefault');
             mkdir(fullfile(folder, 'sub'));
