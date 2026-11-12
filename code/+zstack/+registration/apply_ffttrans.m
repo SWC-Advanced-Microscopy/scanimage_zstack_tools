@@ -70,38 +70,25 @@ function varargout=apply_ffttrans(movingStack,target,params,targetFFT)
 
         if p.verbose, tic, end
 
-        %Expand the target structure if it has a length of 1 so we can
-        %apply the same transformation to all frames of a movie.
+        nFrames=size(movingStack,3);
         registered=ones(size(movingStack));
 
         % The target image's FFT is the same for every frame, so compute it once
         if isnumeric(target), targetFFT=fft2(target); else, targetFFT=[]; end
 
-        if p.parallel
-            if isstruct(target) & length(target)>1
-                parfor ii=1:size(movingStack,3)
-                    [registered(:,:,ii),out(ii)]=...
-                        zstack.registration.apply_ffttrans(movingStack(:,:,ii),target(ii),p);
-                end
-            else
-                parfor ii=1:size(movingStack,3)
-                    [registered(:,:,ii),out(ii)]=...
-                        zstack.registration.apply_ffttrans(movingStack(:,:,ii),target,p,targetFFT);
-                end
-            end
+        % With 0 workers, parfor runs as an ordinary loop (no toolbox needed).
+        % Frames are independent, so the order they run in doesn't matter.
+        nWorkers=0;
+        if p.parallel, nWorkers=Inf; end
 
-        else
-            if isstruct(target) & length(target)>1
-                for ii=1:size(movingStack,3)
-                    [registered(:,:,ii),out(ii)]=...
-                        zstack.registration.apply_ffttrans(movingStack(:,:,ii),target(ii),p);
-                end
+        parfor (ii=1:nFrames, nWorkers)
+            if isstruct(target) && ~isscalar(target)
+                frameTarget=target(ii); % one set of shifts per frame
             else
-                for ii=1:size(movingStack,3)
-                    [registered(:,:,ii),out(ii)]=...
-                        zstack.registration.apply_ffttrans(movingStack(:,:,ii),target,p,targetFFT);
-                end
+                frameTarget=target;     % an image, or one set of shifts for every frame
             end
+            [registered(:,:,ii),out(ii)]=...
+                zstack.registration.apply_ffttrans(movingStack(:,:,ii),frameTarget,p,targetFFT);
         end
 
         % Match the class of the "before" data to that of the registered output.
@@ -118,9 +105,7 @@ function varargout=apply_ffttrans(movingStack,target,params,targetFFT)
             tmp.routine=regexprep(mfilename,'apply_','');
             tmp.params=p;
             if isnumeric(target), tmp.target=target; end
-            for ii=1:size(movingStack,3)
-                tmp.coef(ii)=out(ii).coef;
-            end
+            tmp.coef=[out.coef];
             varargout{2}=tmp;
         end
 
