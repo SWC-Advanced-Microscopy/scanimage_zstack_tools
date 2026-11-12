@@ -1,4 +1,4 @@
-function varargout=apply_ffttrans(movingStack,target,params)
+function varargout=apply_ffttrans(movingStack,target,params,targetFFT)
     % Apply an FFT-based translation correction to an image or image time-series
     %
     % function [registered,stats] = zstack.registration.apply_ffttrans(movingStack,target,params)
@@ -23,6 +23,8 @@ function varargout=apply_ffttrans(movingStack,target,params)
     %          If not specified, defaults are used. See individual files for the
     %          defaults and possible options. Only parameters the user wants to alter
     %          need to be defined in the structure.
+    % targetFFT - [optional, used internally] fft2(target), so that it is computed
+    %             once per stack rather than once per frame.
     %
     % Outputs
     % registered - the registered movingStack.
@@ -72,6 +74,9 @@ function varargout=apply_ffttrans(movingStack,target,params)
         %apply the same transformation to all frames of a movie.
         registered=ones(size(movingStack));
 
+        % The target image's FFT is the same for every frame, so compute it once
+        if isnumeric(target), targetFFT=fft2(target); else, targetFFT=[]; end
+
         if p.parallel
             if isstruct(target) & length(target)>1
                 parfor ii=1:size(movingStack,3)
@@ -81,7 +86,7 @@ function varargout=apply_ffttrans(movingStack,target,params)
             else
                 parfor ii=1:size(movingStack,3)
                     [registered(:,:,ii),out(ii)]=...
-                        zstack.registration.apply_ffttrans(movingStack(:,:,ii),target,p);
+                        zstack.registration.apply_ffttrans(movingStack(:,:,ii),target,p,targetFFT);
                 end
             end
 
@@ -94,7 +99,7 @@ function varargout=apply_ffttrans(movingStack,target,params)
             else
                 for ii=1:size(movingStack,3)
                     [registered(:,:,ii),out(ii)]=...
-                        zstack.registration.apply_ffttrans(movingStack(:,:,ii),target,p);
+                        zstack.registration.apply_ffttrans(movingStack(:,:,ii),target,p,targetFFT);
                 end
             end
         end
@@ -142,7 +147,7 @@ function varargout=apply_ffttrans(movingStack,target,params)
     %EITHER Register images
     if isnumeric(target)
         if ~any(size(movingStack)-size(target))
-            targetFFT=fft2(target);
+            if nargin<4 || isempty(targetFFT), targetFFT=fft2(target); end
             movingFFT=fft2(movingStack);
             [output,Greg,phase] = ...
                 dftregistration(targetFFT,movingFFT,p.usfac);
