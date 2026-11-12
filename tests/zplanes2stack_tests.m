@@ -462,6 +462,15 @@ classdef zplanes2stack_tests < matlab.unittest.TestCase
                 obj.verifyTrue(contains(txt, expected{ii}), ...
                     sprintf('"%s" is missing from the log', expected{ii}))
             end
+
+            % The result line lists every file saved
+            lines = splitlines(txt);
+            resultLine = lines(startsWith(lines, 'Result:'));
+            obj.assertNotEmpty(resultLine, 'The log has no Result line')
+            for f = {'a.tiff', 'b.tiff', 'a.json', 'b.json', 'slices.csv'}
+                obj.verifyTrue(contains(resultLine{1}, f{1}), ...
+                    sprintf('The Result line does not list %s', f{1}))
+            end
         end
 
         function logRecordsFailedRun(obj)
