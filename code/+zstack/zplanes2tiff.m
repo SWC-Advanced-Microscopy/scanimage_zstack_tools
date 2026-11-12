@@ -1,7 +1,7 @@
-function [out, channels, meta] = zplanes2tiff(fname, chan, outFiles, varargin)
+function [out, channels, meta, slices] = zplanes2tiff(fname, chan, outFiles, opts, stackOpts)
 % Build a fully-registered z-stack and save one TIFF per channel.
 %
-% function [out, channels, meta] = zstack.zplanes2tiff(fname, chan, outFiles, Name=Value)
+% function [out, channels, meta, slices] = zstack.zplanes2tiff(fname, chan, outFiles, Name=Value)
 %
 % Purpose
 % Runs zstack.zplanes2stack, then saves each channel of the result as a
@@ -9,7 +9,10 @@ function [out, channels, meta] = zplanes2tiff(fname, chan, outFiles, varargin)
 % by zplanes2stack, plus zplanes2stack.derived.channel giving the channel
 % that file holds, is saved twice for each file: as "name = value" lines in
 % the TIFF's Software tag, and as a JSON file with the same name as the
-% TIFF (e.g. green.json next to green.tiff).
+% TIFF (e.g. green.json next to green.tiff). The per-slice table from
+% zplanes2stack (z position, registration shifts and so on; see its help)
+% is saved once for the stack, by default as slices.csv beside the first
+% output file.
 %
 % The output file names are checked before registration starts, so a
 % mistake there doesn't waste a long run.
@@ -30,32 +33,49 @@ function [out, channels, meta] = zplanes2tiff(fname, chan, outFiles, varargin)
 %            these files nor their JSON files may already exist.
 %
 % Optional name-value arguments
-% Passed on to zstack.zplanes2stack; see its help.
+% sliceFile - file name for the per-slice table. Default: slices.csv in the
+%             folder of the first output file. Comma-separated, unless the
+%             name ends in .tsv, when it is tab-separated. Must not already
+%             exist, so give another name to save two stacks in one folder.
+% freq_cutoff, refine, sigma, needsBidiCorrection - passed on to
+%             zstack.zplanes2stack; see its help for what they do and their
+%             defaults.
 %
 % Outputs
-% out, channels, meta - as returned by zstack.zplanes2stack.
+% out, channels, meta, slices - as returned by zstack.zplanes2stack.
 %
 % Examples
 %
 % - Register on channel 2 and save channels 1 and 2 as red and green
 % >> zstack.zplanes2tiff('file_00001.tif', 2, {'red.tiff', 'green.tiff'}, 'sigma', 2, 'refine', true);
+%
+% - The same, naming the slice table and making it tab-separated
+% >> zstack.zplanes2tiff('file_00001.tif', 2, {'red.tiff', 'green.tiff'}, 'sliceFile', 'stack1_slices.tsv');
 arguments
     fname {mustBeFile}
     chan % validated by zplanes2stack
     outFiles cell
-end
-arguments (Repeating)
-    varargin % name-value arguments, passed on to zplanes2stack
+    opts.sliceFile {mustBeTextScalar} = fullfile(fileparts(outFiles{1}), 'slices.csv')
+    % zplanes2stack's options, passed on unchanged. No defaults here, so only
+    % those given are passed on, and zplanes2stack's own defaults and checks
+    % apply. A new zplanes2stack option must also be listed here.
+    stackOpts.freq_cutoff
+    stackOpts.refine
+    stackOpts.sigma
+    stackOpts.needsBidiCorrection
 end
 
 out = []; % in case of an error
 channels = [];
 meta = struct();
+slices = table();
+sliceFile = char(opts.sliceFile);
+stackArgs = namedargs2cell(stackOpts); % e.g. {'sigma', 2}
 
 % Refuse output folders that don't exist before anything else. The log goes
 % in the first one, and a missing folder would otherwise only fail at the
 % save, after registration.
-outFolders = unique(cellfun(@fileparts, outFiles, 'UniformOutput', false));
+outFolders = unique(cellfun(@fileparts, [outFiles(:); {sliceFile}], 'UniformOutput', false));
 outFolders = outFolders(~cellfun(@isempty, outFolders));
 missingFolders = outFolders(~cellfun(@isfolder, outFolders));
 if ~isempty(missingFolders)
@@ -92,13 +112,13 @@ else
     commit = 'unknown (git not available)';
 end
 fprintf('Toolbox commit: %s\n', commit)
-fprintf('Input: %s, chan %d, outputs: %s\n', fname, chan, strjoin(outFiles, ', '))
+fprintf('Input: %s, chan %d, outputs: %s, slice table: %s\n', fname, chan, strjoin(outFiles, ', '), sliceFile)
 startTime = tic;
 elapsed = @() char(duration(0, 0, toc(startTime), 'Format', 'hh:mm:ss'));
 
 % Do the work, recording any error in the log before raising it as usual
 try
-    [out, channels, meta] = registerAndSave(fname, chan, outFiles, varargin{:});
+    [out, channels, meta, slices] = registerAndSave(fname, chan, outFiles, sliceFile, stackArgs{:});
 catch ME
     % List the stack only down to this function: frames below it belong to
     % whatever called zplanes2tiff, and say nothing about why the run failed.
@@ -116,19 +136,21 @@ end
 if isempty(out)
     fprintf('Result: FAILED - nothing saved, see messages above (%s)\n', elapsed())
 else
-    fprintf('Result: SUCCESS - saved %s (%s)\n', strjoin(outFiles, ', '), elapsed())
+    fprintf('Result: SUCCESS - saved %s and %s (%s)\n', strjoin(outFiles, ', '), sliceFile, elapsed())
 end
 
 end % zplanes2tiff
 
 
-function [out, channels, meta] = registerAndSave(fname, chan, outFiles, varargin)
-% Check the outputs, register the stack and save one TIFF and JSON file per
-% channel. Returns empty outputs, after printing why, if nothing was saved.
+function [out, channels, meta, slices] = registerAndSave(fname, chan, outFiles, sliceFile, varargin)
+% Check the outputs, register the stack, save one TIFF and JSON file per
+% channel and the slice table. Returns empty outputs, after printing why, if
+% nothing was saved.
 
 out = [];
 channels = [];
 meta = struct();
+slices = table();
 
 % Check the output files before the long registration step
 metadata = zstack.io.read_SI_TIFF_header(fname);
@@ -146,14 +168,14 @@ for k = 1:length(outFiles)
     jsonFiles{k} = fullfile(folder, [name '.json']);
 end
 
-existing = [outFiles(:); jsonFiles(:)];
+existing = [outFiles(:); jsonFiles(:); {sliceFile}];
 existing = existing(cellfun(@isfile, existing));
 if ~isempty(existing)
     fprintf('Output file already exists: %s\n', existing{:})
     return
 end
 
-[out, channels, meta] = zstack.zplanes2stack(fname, chan, varargin{:});
+[out, channels, meta, slices] = zstack.zplanes2stack(fname, chan, varargin{:});
 if isempty(out)
     return
 end
@@ -170,6 +192,14 @@ for k = 1:length(channels)
     fid = fopen(jsonFiles{k}, 'w');
     fprintf(fid, '%s\n', jsonencode(metaK, 'PrettyPrint', true)); % PrettyPrint needs R2021a
     fclose(fid);
+end
+
+% Save the slice table, once for the stack
+fprintf('Saving slice table to %s\n', sliceFile)
+if endsWith(sliceFile, '.tsv')
+    writetable(slices, sliceFile, 'FileType', 'text', 'Delimiter', '\t')
+else
+    writetable(slices, sliceFile)
 end
 
 end % registerAndSave
