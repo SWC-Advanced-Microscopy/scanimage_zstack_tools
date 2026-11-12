@@ -1,6 +1,8 @@
 # scanimage_zstack_tools
 Record high quality in vivo z stacks and assemble them using image registration after acquisition
 
+Requires MATLAB R2021a or later and the Image Processing Toolbox.
+
 
 # Producing a z-stack from time series data
 You have a time series of functional data with data obtained from multiple planes. 
@@ -35,8 +37,9 @@ Register and average each slice, then register the slices to one another, with:
 
 Where the second input argument is the channel to use for registration, and the third gives one
 output file per saved channel, in the order ScanImage saved them.
-Each file's `Software` tag holds the acquisition settings, the inputs used and values derived
-during the run; see `help zstack.zplanes2stack`.
+Each file's metadata (the acquisition settings, the inputs used and values derived during the run)
+is saved twice: in the TIFF's `Software` tag, and as a JSON file of the same name beside it
+(`red.json`, `green.json`); see `help zstack.zplanes2stack`.
 To get the registered stack without saving it, use `zstack.zplanes2stack(filename, 2)`.
 Each run is logged to `zplanes2tiff_<date>_<time>.log` beside the first output file, ending with a
 `Result:` line (SUCCESS, FAILED or ERROR).
