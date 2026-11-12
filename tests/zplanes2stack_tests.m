@@ -274,6 +274,24 @@ classdef zplanes2stack_tests < matlab.unittest.TestCase
             obj.verifyFalse(isfile(fullfile(folder, 'a.tiff')), 'A refused run saved output')
         end
 
+        function outFilesAsStringsOrColumn(obj)
+            % Output names as a string array, or as a column of names, work
+            % like the usual row of character vectors
+            folder = obj.newFolder('outStrings');
+            out = zstack.zplanes2tiff(fullfile(obj.fixtureDir, 'stack.tif'), 1, ...
+                [string(fullfile(folder, 'a.tiff')), string(fullfile(folder, 'b.tiff'))]);
+            obj.verifyNotEmpty(out, 'A string array of output names failed')
+            obj.verifyTrue(isfile(fullfile(folder, 'a.json')) && isfile(fullfile(folder, 'b.tiff')), ...
+                'Outputs were missing when names were given as strings')
+
+            folder = obj.newFolder('outColumn');
+            out = zstack.zplanes2tiff(fullfile(obj.fixtureDir, 'stack.tif'), 1, ...
+                {fullfile(folder, 'a.tiff'); fullfile(folder, 'b.tiff')});
+            obj.verifyNotEmpty(out, 'A column of output names failed')
+            obj.verifyTrue(isfile(fullfile(folder, 'a.json')) && isfile(fullfile(folder, 'b.tiff')), ...
+                'Outputs were missing when names were given as a column')
+        end
+
         function outputsUnchanged(obj)
             % Saving must not change the registered stack itself
             folder = obj.newFolder('unchanged');
