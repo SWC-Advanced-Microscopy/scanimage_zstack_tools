@@ -1,7 +1,7 @@
-function [out, channels, meta] = zplanes2stack(fname, chan, opts)
+function [out, channels, meta, slices] = zplanes2stack(fname, chan, opts)
 % Build a fully-registered z-stack from a multi-plane series.
 %
-% function [out, channels, meta] = zstack.zplanes2stack(fname, chan, Name=Value)
+% function [out, channels, meta, slices] = zstack.zplanes2stack(fname, chan, Name=Value)
 %
 % Purpose
 % Feed in an unregistered set of z-planes in ZTCYX format (e.g., such that
@@ -63,6 +63,29 @@ function [out, channels, meta] = zplanes2stack(fname, chan, opts)
 %          applied.
 %        zstack.zplanes2tiff saves `out` with this metadata, both in each
 %        TIFF's Software tag and as a JSON file.
+% slices - a table with one row per slice kept, with columns:
+%          slice - the slice number.
+%          zUm - z position of the slice's first frame, relative to the
+%                start of the stack, from ScanImage's per-frame list
+%                (SI.hStackManager.zs). NaN if the header doesn't have it.
+%          shiftXPx, shiftYPx - the total shift applied to the slice to bring
+%                it into line with slice 1. Each slice is registered to the
+%                previous slice after that slice was itself shifted, so these
+%                accumulate down the stack and include any steady drift.
+%          stepXPx, stepYPx - the slice's shift minus the previous slice's:
+%                how far it moved from its neighbour. A step longer than
+%                10 px is also reported in the command window, as it may be
+%                a wrong match rather than real movement.
+%          framesAtZeroShiftWithinSlice - frames given exactly zero shift
+%                by the *within*-slice registration (frames to the slice's
+%                reference), unlike the shift and step columns, which are
+%                *between* slices. Many or all frames at zero *may* be
+%                indicative of a poor registration (low signal-to-noise ratio;
+%                registration "stuck" at 0), but is also expected when the
+%                sample legitimately barely moved. The poor registration
+%                problem is most often observed with sigma = 0; rerun with a
+%                different sigma and compare results if necessary.
+%          zstack.zplanes2tiff saves this as a .csv or .tsv file.
 %
 % Examples
 %
@@ -90,6 +113,7 @@ fprintf('zplanes2stack: %s, chan %d\n', fname, chan); disp(opts)
 out = [];
 channels = [];
 meta = struct();
+slices = table();
 
 % Preemptively promote fname to a cell array in case our stack is split
 % across multiple files.
@@ -387,11 +411,26 @@ fprintf('Continuing with registration between slices...\n')
 %% Register between slices
 % This has been adapted from Oliver's register_zstack_to_previous.m
 
+% The [x y] shift applied to each slice, relative to slice 1, for the slice table
+shifts = zeros(nZslices, 2);
+
 for ii = 2:nZslices
 
     % Using the same registration channel, register each slice to the
-    % previous one in sequence. Shifts accumulate down the stack.
+    % previous one. Since the previous slice has already been shifted
+    % into line with slice 1, shifts accumulate down the stack and
+    % this slice's shift is also relative to slice 1. 
+    % The step from the previous slice's shift is how far this slice
+    % moved from its neighbour.
     tform = imregcorr(outStack(:, :, ii, chan_idx), outStack(:, :, ii-1, chan_idx), 'translation');
+
+    % Record the shift, and report a large step from the previous slice: it
+    % may be a wrong match rather than real movement.
+    shifts(ii, :) = transformPointsForward(tform, [0 0]);
+    step = norm(shifts(ii, :) - shifts(ii-1, :));
+    if step > 10
+        fprintf('Slice %d moved %.1f px from slice %d; check it by eye.\n', ii, step, ii-1)
+    end
 
     % Apply the same transform to every channel.
     for kk = 1:nChannels
@@ -450,11 +489,12 @@ end
 % We do this conversion so that the metadata can be easily saved as a JSON
 % file using jsonencode (which supports structs out-of-the-box).
 for ii = 1:length(siLines)
-    parts = strsplit(extractBefore(siLines{ii}, ' = '), '.');
-    meta = setfield(meta, parts{:}, eval(extractAfter(siLines{ii}, ' = ')));
+    [name, value] = parseHeaderLine(siLines{ii});
+    parts = strsplit(name, '.');
+    meta = setfield(meta, parts{:}, value);
 end
 if ~isempty(epochLine)
-    meta.epoch = eval(extractAfter(epochLine{1}, ' = '));
+    [~, meta.epoch] = parseHeaderLine(epochLine{1});
 end
 
 % Then add the inputs to this function, named as its arguments, so the run
@@ -479,7 +519,73 @@ meta.zplanes2stack.derived.cropEdgePixels = cropEdgePixels;
 meta.zplanes2stack.derived.pixelSizeUm = pixelSizeUm;
 meta.zplanes2stack.derived.bidiShiftPixels = bidishiftpixels;
 
+%% Build the per-slice table
+% zUm: the z position of each slice.
+% ScanImage's header lists the z position of every frame acquired in
+% SI.hStackManager.zs, relative to the start of the stack. The stage
+% doesn't move during a slice, so we take each slice's first frame
+% (e.g., frames  1, 101, 201, ... for a stack with 100 frames per slice). 
+% These are indexed with the header's framesPerSlice, the number of
+% frames *acquired*, which is more than the number saved when ScanImage
+% averages frames (logAverageFactor > 1). If the line is missing
+% (e.g. another ScanImage version), or holds fewer values than expected
+% (which *might* be the case if it counts frames *saved* rather than
+% *acquired* when frames are averaged with logAverageFactor > 1?...),
+% say so and leave zUm as NaN rather than stopping.
+zUm = nan(nZslices, 1);
+zsLine = splitlines(siHeader);
+zsLine = zsLine(startsWith(zsLine, 'SI.hStackManager.zs = '));
+firstFrames = (0:nZslices-1)' * metadata.framesPerSlice + 1;
+if isempty(zsLine)
+    fprintf('SI.hStackManager.zs is not in the ScanImage header, so the slice table''s zUm is NaN.\n')
+else
+    [~, zs] = parseHeaderLine(zsLine{1});
+    if numel(zs) >= firstFrames(end)
+        zUm = reshape(zs(firstFrames), [], 1); % zs is a row; table columns are columns
+    else
+        fprintf(['SI.hStackManager.zs has %d values, too few for %d slices of %d frames, ' ...
+            'so the slice table''s zUm is NaN.\n'], numel(zs), nZslices, metadata.framesPerSlice)
+    end
+end
+
+% framesAtZeroShiftWithinSlice: from the *within*-slice registration.
+% reg_coeffs(:, ii) holds the shift found for each frame of slice ii when it
+% was registered to that slice's reference; OffsetPixel is [row column], in
+% whole pixels. Count the frames with both equal to zero. A high count *may*
+% indicate a poor registration (low signal-to-noise ratio; registration stuck
+% at 0), but is also expected when the sample barely moved (less than half a
+% pixel). Poor registrations were most often observed with sigma = 0.
+% The count alone can't tell the two cases apart: compare results using a
+% different sigma if there is any doubt.
+% Exact zeros are meaningful when shifts are whole pixels: if we implement
+% sub-pixel registration in the future, this will need to be swapped for a
+% tolerance instead.
+framesAtZeroShiftWithinSlice = zeros(nZslices, 1);
+for ii = 1:nZslices
+    offsets = vertcat(reg_coeffs(:, ii).OffsetPixel); % one [row column] per frame
+    framesAtZeroShiftWithinSlice(ii) = sum(all(offsets == 0, 2));
+end
+
+% The shift and step columns are from the *between*-slice registration above
+steps = [0 0; diff(shifts, 1, 1)];
+slices = table((1:nZslices)', zUm, shifts(:,1), shifts(:,2), steps(:,1), steps(:,2), framesAtZeroShiftWithinSlice, ...
+    'VariableNames', {'slice', 'zUm', 'shiftXPx', 'shiftYPx', 'stepXPx', 'stepYPx', 'framesAtZeroShiftWithinSlice'});
+
 out = outStack;
 channels = savedChannelID;
 
 end % zplanes2stack
+
+
+function [name, value] = parseHeaderLine(line)
+% Split a ScanImage header line, "name = value", into its name and value.
+%
+% ScanImage writes each value as MATLAB syntax (e.g. 2, true, [0 2 4] or
+% 'motor'), so evaluating the text gives the value with its proper type: a
+% number, logical, array or char. read_SI_TIFF_header converts values the
+% same way. This runs text from the TIFF file as MATLAB code, so it should
+% only be used on files written by ScanImage.
+name = extractBefore(line, ' = ');
+value = eval(extractAfter(line, ' = '));
+
+end % parseHeaderLine

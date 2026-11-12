@@ -22,15 +22,26 @@ classdef zplanes2stack_tests < matlab.unittest.TestCase
             obj.fixtureDir = fixture.Folder;
 
             header = zplanes2stack_tests.fakeHeader();
-            stacks = struct( ...
-                'stack', header, ...
-                'renamed', strrep(header, 'SI.hStackManager.numSlices', 'SI.hStacks.numSlices'));
 
-            for name = fieldnames(stacks)'
-                f = fullfile(obj.fixtureDir, [name{1} '.tif']);
-                zplanes2stack_tests.writeFakeStack(f, stacks.(name{1}), [0 0 3], [1 2 2]);
-                [r.log, r.out, r.channels, r.meta] = evalc('zstack.zplanes2stack(f, 1)');
-                obj.runs.(name{1}) = r;
+            % The header says 4 slices, but only 3 were recorded
+            truncated = strrep(header, 'numSlices = 3', 'numSlices = 4');
+            truncated = strrep(truncated, mat2str(repelem([0 2 4], 6)), mat2str(repelem([0 2 4 6], 6)));
+
+            % Name, header text and the column shift of each slice's content.
+            % In every stack, frame 2 of slice 1 is shifted 2 rows.
+            stacks = { ...
+                'stack',     header,                                                                   [0 0 3]; ...
+                'renamed',   strrep(header, 'SI.hStackManager.numSlices', 'SI.hStacks.numSlices'),    [0 0 3]; ...
+                'truncated', truncated,                                                                [0 0 3]; ...
+                'nozs',      regexprep(header, 'SI\.hStackManager\.zs = [^\n]*\n', ''),              [0 0 3]; ...
+                'shortzs',   strrep(header, mat2str(repelem([0 2 4], 6)), mat2str(repelem([0 2 4], 3))), [0 0 3]; ...
+                'bigstep',   header,                                                                   [0 0 12]};
+
+            for ii = 1:size(stacks, 1)
+                f = fullfile(obj.fixtureDir, [stacks{ii,1} '.tif']);
+                zplanes2stack_tests.writeFakeStack(f, stacks{ii,2}, stacks{ii,3}, [1 2 2]);
+                [r.log, r.out, r.channels, r.meta, r.slices] = evalc('zstack.zplanes2stack(f, 1)');
+                obj.runs.(stacks{ii,1}) = r;
             end
         end
     end
@@ -268,6 +279,113 @@ classdef zplanes2stack_tests < matlab.unittest.TestCase
             out = zstack.zplanes2tiff(fullfile(obj.fixtureDir, 'stack.tif'), 1, ...
                 {fullfile(folder, 'a.tiff'), fullfile(folder, 'b.tiff')});
             obj.verifyEqual(out, obj.runs.stack.out)
+        end
+
+
+        % The per-slice table
+
+        function sliceTableColumns(obj)
+            slices = obj.runs.stack.slices;
+            obj.assertTrue(istable(slices), 'No slice table was returned')
+            obj.verifyEqual(slices.Properties.VariableNames, ...
+                {'slice', 'zUm', 'shiftXPx', 'shiftYPx', 'stepXPx', 'stepYPx', 'framesAtZeroShiftWithinSlice'})
+            obj.verifyEqual(height(slices), 3)
+            obj.verifyEqual(slices.slice, [1; 2; 3])
+        end
+
+        function zPositionsFollowHeader(obj)
+            obj.verifyEqual(obj.runs.stack.slices.zUm, [0; 2; 4], ...
+                'zUm is not the z position of each slice''s first frame')
+            obj.verifyFalse(contains(obj.runs.stack.log, 'zUm is NaN'), ...
+                'A problem with the z positions was reported when there was none')
+
+            % No z positions in the header, or too few for the slices kept
+            for name = {'nozs', 'shortzs'}
+                r = obj.runs.(name{1});
+                obj.verifyNotEmpty(r.out, sprintf('%s: a problem with the z positions stopped the run', name{1}))
+                obj.verifyTrue(all(isnan(r.slices.zUm)), sprintf('%s: zUm should be NaN', name{1}))
+                obj.verifyTrue(contains(r.log, 'zUm is NaN'), ...
+                    sprintf('%s: the problem with the z positions was not reported', name{1}))
+            end
+        end
+
+        function stepRecordsKnownShift(obj)
+            % Slice 3's content is 3 px to the right of slice 2's, so the
+            % correction applied to it is 3 px to the left
+            slices = obj.runs.stack.slices;
+            obj.verifyEqual(slices.stepXPx(3), -3, 'AbsTol', 0.5, 'Slice 3''s step was not recovered')
+            obj.verifyEqual(slices.stepXPx(2), 0, 'AbsTol', 0.5, 'Slice 2 should not have moved')
+            obj.verifyEqual(slices.stepYPx, [0; 0; 0], 'AbsTol', 0.5, 'No slice moved in y')
+            obj.verifyEqual(slices.shiftXPx(3), slices.shiftXPx(2) + slices.stepXPx(3), 'AbsTol', 1e-9, ...
+                'The step is not the difference between consecutive shifts')
+        end
+
+        function stuckFramesAreCounted(obj)
+            % Within each slice: frame 2 of slice 1 is shifted; every other frame is still
+            obj.verifyEqual(obj.runs.stack.slices.framesAtZeroShiftWithinSlice, [5; 6; 6])
+        end
+
+        function largeStepIsReported(obj)
+            obj.verifyTrue(contains(obj.runs.bigstep.log, 'Slice 3 moved'), ...
+                'A 12 px step between slices was not reported')
+            obj.verifyFalse(contains(obj.runs.stack.log, 'moved'), ...
+                'A 3 px step between slices was reported')
+        end
+
+        function truncatedStackHasOneRowPerSavedSlice(obj)
+            r = obj.runs.truncated;
+            obj.verifyEqual(r.meta.zplanes2stack.derived.slicesSaved, 3)
+            obj.verifyEqual(height(r.slices), 3, 'The table should only list the slices kept')
+            obj.verifyEqual(r.slices.zUm, [0; 2; 4])
+        end
+
+        function sliceTableIsWrittenAsCsvOrTsv(obj)
+            folder = obj.newFolder('sliceCsv');
+            zstack.zplanes2tiff(fullfile(obj.fixtureDir, 'stack.tif'), 1, ...
+                {fullfile(folder, 'a.tiff'), fullfile(folder, 'b.tiff')}, 'sliceFile', fullfile(folder, 's.csv'));
+            obj.assertTrue(isfile(fullfile(folder, 's.csv')), 'No slice table was written')
+            written = readtable(fullfile(folder, 's.csv'));
+            obj.verifyEqual(height(written), 3)
+            obj.verifyEqual(written.Properties.VariableNames, obj.runs.stack.slices.Properties.VariableNames)
+
+            folder = obj.newFolder('sliceTsv');
+            zstack.zplanes2tiff(fullfile(obj.fixtureDir, 'stack.tif'), 1, ...
+                {fullfile(folder, 'a.tiff'), fullfile(folder, 'b.tiff')}, 'sliceFile', fullfile(folder, 's.tsv'));
+            obj.assertTrue(isfile(fullfile(folder, 's.tsv')), 'No .tsv slice table was written')
+            firstLine = strtok(fileread(fullfile(folder, 's.tsv')), newline);
+            obj.verifyTrue(contains(firstLine, sprintf('\t')), 'The .tsv file is not tab-separated')
+        end
+
+        function sliceTableDefaultsToSlicesCsv(obj)
+            folder = obj.newFolder('sliceDefault');
+            mkdir(fullfile(folder, 'sub'));
+            zstack.zplanes2tiff(fullfile(obj.fixtureDir, 'stack.tif'), 1, ...
+                {fullfile(folder, 'sub', 'a.tiff'), fullfile(folder, 'b.tiff')});
+            obj.verifyTrue(isfile(fullfile(folder, 'sub', 'slices.csv')), ...
+                'Without the sliceFile option, the table is not slices.csv beside the first output')
+        end
+
+        function sliceFileMixesWithOtherOptions(obj)
+            % sliceFile is zplanes2tiff's own option; the rest go to zplanes2stack
+            folder = obj.newFolder('sliceOption');
+            [~, ~, meta] = zstack.zplanes2tiff(fullfile(obj.fixtureDir, 'stack.tif'), 1, ...
+                {fullfile(folder, 'a.tiff'), fullfile(folder, 'b.tiff')}, ...
+                'sigma', 1, 'sliceFile', fullfile(folder, 's.csv'), 'refine', true);
+            obj.verifyTrue(isfile(fullfile(folder, 's.csv')), 'The sliceFile option was not used')
+            obj.verifyEqual(meta.zplanes2stack.input.sigma, 1, 'An option before sliceFile was lost')
+            obj.verifyEqual(meta.zplanes2stack.input.refine, true, 'An option after sliceFile was lost')
+        end
+
+        function existingSliceTableIsRefusedBeforeRunning(obj)
+            folder = obj.newFolder('sliceExists');
+            fclose(fopen(fullfile(folder, 'slices.csv'), 'w'));
+            [printed, out] = evalc(['zstack.zplanes2tiff(fullfile(obj.fixtureDir, ''stack.tif''), 1, ' ...
+                '{fullfile(folder, ''a.tiff''), fullfile(folder, ''b.tiff'')})']);
+            obj.verifyEmpty(out, 'A run whose slice table already exists went ahead')
+            obj.verifyTrue(contains(printed, 'already exists') && contains(printed, 'slices.csv'), ...
+                'The existing slice table was not named')
+            obj.verifyFalse(isfile(fullfile(folder, 'a.tiff')) || isfile(fullfile(folder, 'a.json')), ...
+                'A refused run saved output')
         end
 
 
