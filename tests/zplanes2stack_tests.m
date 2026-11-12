@@ -252,6 +252,13 @@ classdef zplanes2stack_tests < matlab.unittest.TestCase
                 obj.verifyTrue(contains(software, [names{ii} ' = ' mat2str(values{ii})]), ...
                     sprintf('%s is missing from, or differs in, the Software tag', names{ii}))
             end
+
+            % The second file holds channel 2, in both its JSON and Software tag
+            jsonB = jsondecode(fileread(fullfile(folder, 'b.json')));
+            obj.verifyEqual(jsonB.zplanes2stack.derived.channel, 2, 'b.json does not say channel 2')
+            infoB = imfinfo(fullfile(folder, 'b.tiff')); % one entry per page
+            obj.verifyTrue(contains(infoB(1).Software, 'zplanes2stack.derived.channel = 2'), ...
+                'b.tiff''s Software tag does not say channel 2')
         end
 
         function jsonGoesNextToItsTiff(obj)
