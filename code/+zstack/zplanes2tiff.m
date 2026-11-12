@@ -28,9 +28,10 @@ function [out, channels, meta, slices] = zplanes2tiff(fname, chan, outFiles, opt
 % Inputs
 % fname - relative or absolute path to a ScanImage TIFF stack on disk.
 % chan - the channel used to calculate the registration.
-% outFiles - cell array of output file names, one per saved channel, in the
-%            order ScanImage saved them (its channelSave setting). Neither
-%            these files nor their JSON files may already exist.
+% outFiles - output file names, as a cell array or string array, one per
+%            saved channel, in the order ScanImage saved them (its
+%            channelSave setting). Neither these files nor their JSON
+%            files may already exist.
 %
 % Optional name-value arguments
 % sliceFile - file name for the per-slice table. Default: slices.csv in the
@@ -54,7 +55,7 @@ function [out, channels, meta, slices] = zplanes2tiff(fname, chan, outFiles, opt
 arguments
     fname {mustBeFile}
     chan % validated by zplanes2stack
-    outFiles cell
+    outFiles {mustBeA(outFiles, ["cell", "string"]), mustBeText}
     opts.sliceFile {mustBeTextScalar} = fullfile(fileparts(outFiles{1}), 'slices.csv')
     % zplanes2stack's options, passed on unchanged. No defaults here, so only
     % those given are passed on, and zplanes2stack's own defaults and checks
@@ -69,6 +70,7 @@ out = []; % in case of an error
 channels = [];
 meta = struct();
 slices = table();
+outFiles = reshape(cellstr(outFiles), 1, []); % a row of char vectors, however they were given
 sliceFile = char(opts.sliceFile);
 stackArgs = namedargs2cell(stackOpts); % e.g. {'sigma', 2}
 
