@@ -1,11 +1,12 @@
 classdef zplanes2stack_tests < matlab.unittest.TestCase
-    % Tests associated with building a z-stack and its metadata header
+    % Tests associated with building a z-stack and its metadata
     %
     % Purpose
     % zplanes2stack reads a ScanImage slow stack, registers it and returns a
-    % header describing the result. These tests write small synthetic stacks in
+    % metadata struct describing the result; zplanes2tiff saves it as each TIFF's
+    % Software tag and as a JSON file. These tests write small synthetic stacks in
     % ScanImage's layout (pages ordered z, then t, then c; a Software tag holding
-    % "SI.x = value" lines; a per-frame ImageDescription) and check the header
+    % "SI.x = value" lines; a per-frame ImageDescription) and check the metadata
     % that comes back. Each stack is registered once, in TestClassSetup, because
     % registration dominates the run time.
 
@@ -28,7 +29,7 @@ classdef zplanes2stack_tests < matlab.unittest.TestCase
             for name = fieldnames(stacks)'
                 f = fullfile(obj.fixtureDir, [name{1} '.tif']);
                 zplanes2stack_tests.writeFakeStack(f, stacks.(name{1}), [0 0 3], [1 2 2]);
-                [r.log, r.out, r.channels, r.header] = evalc('zstack.zplanes2stack(f, 1)');
+                [r.log, r.out, r.channels, r.meta] = evalc('zstack.zplanes2stack(f, 1)');
                 obj.runs.(name{1}) = r;
             end
         end
@@ -109,6 +110,36 @@ classdef zplanes2stack_tests < matlab.unittest.TestCase
             end
             t.close();
         end
+
+
+        function tf = hasPath(s, name)
+            % True if the dotted field name (e.g. 'SI.hStackManager.numSlices') exists in s
+            tf = true;
+            for part = strsplit(name, '.')
+                if ~isstruct(s) || ~isfield(s, part{1})
+                    tf = false;
+                    return
+                end
+                s = s.(part{1});
+            end
+        end
+
+        function [names, values] = leaves(s, prefix)
+            % Dotted names and values of every non-struct field in s
+            names = {};
+            values = {};
+            for f = fieldnames(s)'
+                v = s.(f{1});
+                if isstruct(v)
+                    [n, vals] = zplanes2stack_tests.leaves(v, [prefix f{1} '.']);
+                    names = [names, n]; %#ok<AGROW>
+                    values = [values, vals]; %#ok<AGROW>
+                else
+                    names{end+1} = [prefix f{1}]; %#ok<AGROW>
+                    values{end+1} = v; %#ok<AGROW>
+                end
+            end
+        end
     end % methods(Static)
 
 
@@ -129,7 +160,7 @@ classdef zplanes2stack_tests < matlab.unittest.TestCase
 
 
     methods (Test)
-        function headerHasRequestedSIFields(obj)
+        function metaHasRequestedSIFields(obj)
             requested = { ...
                 'SI.VERSION_MAJOR', 'SI.VERSION_MINOR', ...
                 'SI.hStackManager.numSlices', 'SI.hStackManager.actualStackZStepSize', ...
@@ -139,36 +170,39 @@ classdef zplanes2stack_tests < matlab.unittest.TestCase
                 'SI.hRoiManager.scanFrameRate', 'SI.hRoiManager.imagingFovUm', ...
                 'SI.hMotors.axesPosition', 'SI.hStackManager.stackStartPowerFraction', ...
                 'SI.hStackManager.stackEndPowerFraction'};
-            header = obj.runs.stack.header;
             for ii = 1:length(requested)
-                obj.verifyTrue(contains(header, [requested{ii} ' = ']), ...
-                    sprintf('%s is missing from the header', requested{ii}))
+                obj.verifyTrue(zplanes2stack_tests.hasPath(obj.runs.stack.meta, requested{ii}), ...
+                    sprintf('%s is missing from the metadata', requested{ii}))
             end
+            obj.verifyEqual(obj.runs.stack.meta.SI.hStackManager.numSlices, 3, ...
+                'numSlices was not read as a number')
         end
 
-        function headerOmitsOtherFields(obj)
-            header = obj.runs.stack.header;
-            obj.verifyFalse(contains(header, 'channelOffset'), ...
-                'A per-channel setting was copied into the header')
-            obj.verifyFalse(contains(header, '.zs = '), ...
-                'The per-frame z positions were copied into the header')
+        function metaOmitsOtherFields(obj)
+            meta = obj.runs.stack.meta;
+            obj.assertTrue(isstruct(meta), 'The metadata is not a struct')
+            obj.verifyFalse(zplanes2stack_tests.hasPath(meta, 'SI.hChannels.channelOffset'), ...
+                'A per-channel setting was copied into the metadata')
+            obj.verifyFalse(zplanes2stack_tests.hasPath(meta, 'SI.hStackManager.zs'), ...
+                'The per-frame z positions were copied into the metadata')
         end
 
-        function headerHasEpoch(obj)
-            obj.verifyTrue(contains(obj.runs.stack.header, 'epoch = [2026  7  2 17 42 54.802]'), ...
-                'The acquisition date (epoch) is missing from the header')
+        function metaHasEpoch(obj)
+            obj.verifyTrue(zplanes2stack_tests.hasPath(obj.runs.stack.meta, 'epoch'), ...
+                'The acquisition date (epoch) is missing from the metadata')
+            obj.verifyEqual(obj.runs.stack.meta.epoch, [2026 7 2 17 42 54.802], ...
+                'The acquisition date was not read correctly')
         end
 
-        function headerHasInputsAndDerived(obj)
-            header = obj.runs.stack.header;
-            expected = { ...
-                'zplanes2stack.input.chan = 1', ...
-                'zplanes2stack.derived.slicesSaved = 3', ...
-                'zplanes2stack.derived.cropEdgePixels = 7'};
-            for ii = 1:length(expected)
-                obj.verifyTrue(contains(header, expected{ii}), ...
-                    sprintf('"%s" is missing from the header', expected{ii}))
-            end
+        function metaHasInputsAndDerived(obj)
+            meta = obj.runs.stack.meta;
+            obj.verifyTrue(zplanes2stack_tests.hasPath(meta, 'zplanes2stack.input.chan') && ...
+                zplanes2stack_tests.hasPath(meta, 'zplanes2stack.derived.slicesSaved'), ...
+                'The inputs or derived values are missing from the metadata')
+            obj.verifyEqual(meta.zplanes2stack.input.chan, 1)
+            obj.verifyEqual(meta.zplanes2stack.input.refine, false)
+            obj.verifyEqual(meta.zplanes2stack.derived.slicesSaved, 3)
+            obj.verifyEqual(meta.zplanes2stack.derived.cropEdgePixels, 7)
         end
 
         function missingFieldsAreReported(obj)
@@ -176,8 +210,64 @@ classdef zplanes2stack_tests < matlab.unittest.TestCase
             obj.verifyNotEmpty(r.out, 'A missing header field stopped the run')
             obj.verifyTrue(contains(r.log, 'not present in the ScanImage header') && contains(r.log, 'SI.hStackManager.numSlices'), ...
                 'The missing field was not named in the printed output')
-            obj.verifyFalse(contains(r.header, 'SI.hStackManager.numSlices'), ...
-                'The missing field appeared in the header anyway')
+            obj.verifyTrue(isstruct(r.meta), 'The metadata is not a struct')
+            obj.verifyFalse(zplanes2stack_tests.hasPath(r.meta, 'SI.hStackManager.numSlices'), ...
+                'The missing field appeared in the metadata anyway')
+        end
+
+
+        % zplanes2tiff's saved metadata: Software tag and JSON
+
+        function jsonMatchesSoftwareTag(obj)
+            folder = obj.newFolder('json');
+            [~, ~, meta] = zstack.zplanes2tiff(fullfile(obj.fixtureDir, 'stack.tif'), 1, ...
+                {fullfile(folder, 'a.tiff'), fullfile(folder, 'b.tiff')});
+            meta.zplanes2stack.derived.channel = 1; % what a.tiff should hold
+
+            obj.assertTrue(isfile(fullfile(folder, 'a.json')), 'No JSON file was written')
+            json = jsondecode(fileread(fullfile(folder, 'a.json')));
+            software = imfinfo(fullfile(folder, 'a.tiff')).Software;
+
+            [names, values] = zplanes2stack_tests.leaves(meta, '');
+            for ii = 1:length(names)
+                obj.verifyTrue(zplanes2stack_tests.hasPath(json, names{ii}), ...
+                    sprintf('%s is missing from the JSON', names{ii}))
+                if zplanes2stack_tests.hasPath(json, names{ii})
+                    parts = strsplit(names{ii}, '.');
+                    obj.verifyEqual(double(reshape(getfield(json, parts{:}), [], 1)), double(values{ii}(:)), ...
+                        'AbsTol', 1e-12, sprintf('%s differs between the JSON and the metadata', names{ii}))
+                end
+                obj.verifyTrue(contains(software, [names{ii} ' = ' mat2str(values{ii})]), ...
+                    sprintf('%s is missing from, or differs in, the Software tag', names{ii}))
+            end
+        end
+
+        function jsonGoesNextToItsTiff(obj)
+            folder = obj.newFolder('jsonPaths');
+            mkdir(fullfile(folder, 'sub'));
+            zstack.zplanes2tiff(fullfile(obj.fixtureDir, 'stack.tif'), 1, ...
+                {fullfile(folder, 'sub', 'a.tiff'), fullfile(folder, 'b')});
+            obj.verifyTrue(isfile(fullfile(folder, 'sub', 'a.json')), 'a.json is not next to sub/a.tiff')
+            obj.verifyTrue(isfile(fullfile(folder, 'b.json')), 'b.json is not next to b (no extension)')
+        end
+
+        function existingJsonIsRefusedBeforeRunning(obj)
+            folder = obj.newFolder('jsonExists');
+            fclose(fopen(fullfile(folder, 'a.json'), 'w'));
+            [printed, out] = evalc(['zstack.zplanes2tiff(fullfile(obj.fixtureDir, ''stack.tif''), 1, ' ...
+                '{fullfile(folder, ''a.tiff''), fullfile(folder, ''b.tiff'')})']);
+            obj.verifyEmpty(out, 'A run whose JSON file already exists went ahead')
+            obj.verifyTrue(contains(printed, 'already exists') && contains(printed, 'a.json'), ...
+                'The existing JSON file was not named')
+            obj.verifyFalse(isfile(fullfile(folder, 'a.tiff')), 'A refused run saved output')
+        end
+
+        function outputsUnchanged(obj)
+            % Saving must not change the registered stack itself
+            folder = obj.newFolder('unchanged');
+            out = zstack.zplanes2tiff(fullfile(obj.fixtureDir, 'stack.tif'), 1, ...
+                {fullfile(folder, 'a.tiff'), fullfile(folder, 'b.tiff')});
+            obj.verifyEqual(out, obj.runs.stack.out)
         end
 
 
