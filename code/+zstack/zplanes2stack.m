@@ -67,15 +67,22 @@ function [out, channels, meta, slices] = zplanes2stack(fname, chan, opts)
 %          slice - the slice number.
 %          zUm - z position of the slice's first frame, relative to the
 %                start of the stack, from ScanImage's per-frame list
-%                (SI.hStackManager.zs). NaN if the header doesn't have it.
+%                (SI.hStackManager.zs). NaN, with a message, if the header
+%                doesn't have it or ScanImage averaged frames when saving
+%                (logAverageFactor > 1), as how zs counts them is unchecked.
 %          shiftXPx, shiftYPx - the total shift applied to the slice to bring
-%                it into line with slice 1. Each slice is registered to the
+%                it into line with slice 1, in pixels: X along image columns,
+%                Y along rows. This is the correction, so it has the opposite
+%                sign to the movement: content 3 px to the right of slice 1's
+%                gives shiftXPx = -3. Each slice is registered to the
 %                previous slice after that slice was itself shifted, so these
 %                accumulate down the stack and include any steady drift.
 %          stepXPx, stepYPx - the slice's shift minus the previous slice's:
-%                how far it moved from its neighbour. A step longer than
-%                10 px is also reported in the command window, as it may be
-%                a wrong match rather than real movement.
+%                the correction for how far its content moved from its
+%                neighbour's, so again opposite in sign to the movement. A
+%                step longer than 10 px is also reported in the command
+%                window, as it may be a wrong match rather than real
+%                movement.
 %          framesAtZeroShiftWithinSlice - frames given exactly zero shift
 %                by the *within*-slice registration (frames to the slice's
 %                reference), unlike the shift and step columns, which are
