@@ -106,7 +106,7 @@ function out = timeseries2zplanes(fname,chan,freq_cutoff)
 
         fprintf('Registering channel %d\n', t_chan)
         for ii=1:length(reg_coefs)
-            t_reg = zstack.registration.apply_ffttrans(t_stack{ii},reg_coefs{ii}.coef);
+            t_reg = zstack.registration.applyShifts(t_stack{ii},reg_coefs{ii}.coef);
             tmp(:,:,ii) = mean(t_reg,3);
         end
 
