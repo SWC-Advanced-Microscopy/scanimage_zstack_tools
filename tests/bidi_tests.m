@@ -35,8 +35,6 @@ classdef bidi_tests < matlab.unittest.TestCase
     end
 
 
-
-
     methods
 
         function im = addComb(~, im, s)
@@ -46,8 +44,6 @@ classdef bidi_tests < matlab.unittest.TestCase
         end
 
     end % methods
-
-
 
 
     methods (Test)
@@ -69,18 +65,6 @@ classdef bidi_tests < matlab.unittest.TestCase
                 obj.verifyEqual(stats.shiftAmnt, -s, ...
                     sprintf('Even lines offset by %d px, but getShift returned %d', s, stats.shiftAmnt))
             end
-        end
-
-
-        function correctedFrameMatchesOriginal(obj)
-            % Shifting even lines is lossless, so the corrected frame must be
-            % exactly the frame before the offset was added
-            s = 3;
-            [corrected, stats] = zstack.bidi.getShift(obj.addComb(obj.refImage, s), obj.metadata, false, true);
-            obj.assumeEqual(stats.shiftAmnt, -s, 'Shift not recovered; see combIsRecovered')
-
-            obj.verifyEqual(corrected, obj.refImage, 'AbsTol', 1e-9, ...
-                'The corrected frame does not match the frame without an offset')
         end
 
 

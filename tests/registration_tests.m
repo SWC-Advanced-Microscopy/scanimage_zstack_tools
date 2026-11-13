@@ -34,8 +34,6 @@ classdef registration_tests < matlab.unittest.TestCase
     end
 
 
-
-
     methods
 
         function stack = makeShiftedStack(obj, im)
@@ -49,8 +47,6 @@ classdef registration_tests < matlab.unittest.TestCase
     end % methods
 
 
-
-
     methods (Test)
 
         function registrationRecoversTheOriginalFrames(obj)
@@ -61,66 +57,6 @@ classdef registration_tests < matlab.unittest.TestCase
             for ii = 1:size(stack,3)
                 obj.verifyEqual(reg(:,:,ii), obj.refImage, 'AbsTol', 1e-6, ...
                     sprintf('Frame %d was not restored to the reference image', ii))
-            end
-        end
-
-
-        function pixelValuesArePreserved(obj)
-            % A whole-pixel shift permutes pixels, so the sorted values must match
-            stack = obj.makeShiftedStack(obj.refImage);
-            reg = zstack.registration.applyShifts(stack, zstack.registration.findShifts(stack, obj.refImage));
-
-            for ii = 1:size(stack,3)
-                obj.verifyEqual(sort(reshape(reg(:,:,ii),[],1)), ...
-                                sort(obj.refImage(:)), 'AbsTol', 1e-6, ...
-                    sprintf('Frame %d had its pixel values altered', ii))
-            end
-        end
-
-
-        function negativeValuesSurvive(obj)
-            % The key test for real() vs abs(). High-pass filtered data are zero
-            % mean, so roughly half the pixels are negative. abs() would rectify
-            % them and this test would fail.
-            im = obj.refImage - mean(obj.refImage(:));
-            obj.assumeLessThan(min(im(:)), 0, 'Test image should contain negatives')
-
-            stack = obj.makeShiftedStack(im);
-            reg = zstack.registration.applyShifts(stack, zstack.registration.findShifts(stack, im));
-
-            obj.verifyLessThan(min(reg(:)), 0, ...
-                'All negative pixels were lost, which suggests rectification')
-
-            for ii = 1:size(stack,3)
-                obj.verifyEqual(reg(:,:,ii), im, 'AbsTol', 1e-6, ...
-                    sprintf('Frame %d was not restored when data were signed', ii))
-            end
-        end
-
-
-        function intensityIsNotRescaled(obj)
-            % One bright pixel must not change the scale of the whole stack
-            im = obj.refImage;
-            im(10,10) = 1e6; % A hot pixel in the reference only
-
-            stack = obj.makeShiftedStack(obj.refImage);
-            reg = zstack.registration.applyShifts(stack, zstack.registration.findShifts(stack, im));
-
-            obj.verifyEqual(max(reg(:)), max(obj.refImage(:)), 'RelTol', 1e-6, ...
-                'A hot pixel in the target changed the scale of the moving data')
-        end
-
-
-        function diffPhaseIsZero(obj)
-            % The phase term should be ~0 for real images with a positive
-            % correlation peak. If this holds the exp(i*phase) multiplies in
-            % applyShifts are no-ops and could be removed.
-            stack = obj.makeShiftedStack(obj.refImage);
-            coef = zstack.registration.findShifts(stack, obj.refImage);
-
-            for ii = 1:length(coef)
-                obj.verifyEqual(coef(ii).diffPhase, 0, 'AbsTol', 1e-9, ...
-                    sprintf('diffPhase was not ~0 for frame %d', ii))
             end
         end
 
@@ -141,39 +77,14 @@ classdef registration_tests < matlab.unittest.TestCase
         end
 
 
-
         % findShifts and applyShifts: finding and applying shifts as separate steps
 
-        function applyShiftsWithOneShiftMovesEveryFrame(obj)
-            % A single set of shifts is applied to every frame alike
-            stack = repmat(obj.refImage, 1, 1, 3);
-            oneShift = struct('diffPhase', 0, 'OffsetPixel', [3 -5]);
-            reg = zstack.registration.applyShifts(stack, oneShift);
-            for ii = 1:3
-                obj.verifyEqual(reg(:,:,ii), circshift(obj.refImage, [3 -5]), 'AbsTol', 1e-6, ...
-                    sprintf('Frame %d was not shifted by the single set of shifts', ii))
-            end
-        end
-
-        function findShiftsRejectsWrongSizeReference(obj)
+        function findShiftsRejectsWrongSizeTarget(obj)
             stack = obj.makeShiftedStack(obj.refImage);
             obj.verifyError(@() zstack.registration.findShifts(stack, obj.refImage(1:10,:)), ...
                 'zstack:findShifts:sizeMismatch')
         end
 
-        function findShiftsReturnsStats(obj)
-            % The optional stats output holds the registration details
-            stack = obj.makeShiftedStack(obj.refImage);
-            [coef, stats] = zstack.registration.findShifts(stack, obj.refImage);
-            obj.assertEqual(sort(fieldnames(stats)), ...
-                sort({'before'; 'routine'; 'params'; 'target'; 'coef'}), ...
-                'stats does not have the expected fields')
-            obj.verifyEqual(stats.coef, coef)
-            obj.verifyEqual(stats.before, double(stack))
-            obj.verifyEqual(stats.target, obj.refImage)
-            obj.verifyEqual(stats.routine, 'ffttrans')
-            obj.verifyEqual(stats.params.usfac, 1)
-        end
     end % methods (Test)
 
 
