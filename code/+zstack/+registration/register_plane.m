@@ -17,7 +17,7 @@ function [registered_stack,reg_params] = register_plane(orig_stack, refine, sigm
     %
     % Outputs
     % registered_stack - the registered frames.
-    % reg_params - the registration coefficients.
+    % reg_params - the registration coefficients and related data.
     %
     %
     % Rob Campbell - SWC 2026
@@ -49,18 +49,17 @@ function [registered_stack,reg_params] = register_plane(orig_stack, refine, sigm
     end
 
     orig_mu = zstack.registration.averageCorrelatedFrames(stack);
-    coef = zstack.registration.findShifts(stack,orig_mu);
+    [coef,reg_params] = zstack.registration.findShifts(stack,orig_mu);
 
     if refine
         % Refine the registration using the mean of the registered frames
         refined_mu = mean(zstack.registration.applyShifts(stack,coef), 3);
-        coef = zstack.registration.findShifts(stack,refined_mu);
+        [coef,reg_params] = zstack.registration.findShifts(stack,refined_mu);
     end
 
     % Apply the shifts to the original frames.
     % NB. If we didn't blur, the original frames are the frames the shifts were found on.
     %     (Re)apply the shifts to the original frames unconditionally anyway - it's cheap.
     registered_stack = zstack.registration.applyShifts(orig_stack,coef);
-    reg_params.coef = coef;
 
 end % register_plane
