@@ -124,25 +124,36 @@ function varargout=apply_ffttrans(movingStack,target,params,targetFFT)
     %----------------------------------------------------------------------
     % Conduct the registration
     %
-    % If target is an image of the same size, find the shift that aligns
-    % movingStack to it. If target is a set of coefficients, use the shift it
-    % holds. Either way, then apply the shift.
+    % Compute coefficients and register movingStack to target if target is an image
+    % of the same size. If target is a set of coefficients then translate movingStack
+    % by the specified parameters.
     if p.verbose & ~p.parallel, fprintf('*'), end
 
+    %EITHER Register images
     if isnumeric(target)
-        if any(size(movingStack)-size(target))
+        if ~any(size(movingStack)-size(target))
+            if nargin<4 || isempty(targetFFT), targetFFT=fft2(target); end
+            movingFFT=fft2(movingStack);
+            output = dftregistration(targetFFT,movingFFT,p.usfac);
+            OffsetPixel=output([3,4]);
+            phase=output(2);
+        else
             fprintf('Failed to register moving image to target image\n\n\n')
             return
         end
-        if nargin<4 || isempty(targetFFT), targetFFT=fft2(target); end
-        output=dftregistration(targetFFT,fft2(movingStack),p.usfac);
-        OffsetPixel=output([3,4]);
-        phase=output(2);
-    else
-        OffsetPixel=target.OffsetPixel;
-        phase=target.diffPhase;
     end
 
+    %OR Translate movingStack based on coefficients in target structure
+    if isstruct(target)
+
+        %Extract coefficients
+        OffsetPixel=target.OffsetPixel;
+        phase=target.diffPhase;
+        target=[];
+
+    end
+
+    % Translate movingStack by the shift, whichever way it was obtained
     registered=shiftFrame(movingStack,OffsetPixel,phase);
 
 
@@ -163,27 +174,32 @@ function varargout=apply_ffttrans(movingStack,target,params,targetFFT)
 end % apply_ffttrans
 
 
-function registered=shiftFrame(frame,OffsetPixel,phase)
+function registered=shiftFrame(movingStack,OffsetPixel,phase)
     % Translate one frame by OffsetPixel ([row column]) and apply the phase term
     %
-    % For whole-pixel shifts (usfac = 1) the Fourier phase ramp is exactly a
+    % For whole-pixel shifts (usfac = 1) the Fourier phase ramp below is exactly a
     % circular shift, and taking the real part reduces the phase term to
     % cos(phase) (in practice phase is 0 for real images, so this is 1).
-    % Sub-pixel shifts (usfac > 1) still need the Fourier route.
     if all(OffsetPixel==round(OffsetPixel))
-        registered=cos(phase)*circshift(double(frame),OffsetPixel);
+        registered=cos(phase)*circshift(double(movingStack),OffsetPixel);
         return
     end
 
-    [nr,nc]=size(frame);
+    row_shift=OffsetPixel(1);
+    col_shift=OffsetPixel(2);
+
+    movingFFT=fft2(movingStack);
+
+    [nr,nc,~]=size(movingStack);
     Nr = ifftshift([-fix(nr/2):ceil(nr/2)-1]);
     Nc = ifftshift([-fix(nc/2):ceil(nc/2)-1]);
     [Nc,Nr] = meshgrid(Nc,Nr);
-    registered=fft2(frame).*exp(i*2*pi*(-OffsetPixel(1)*Nr/nr-OffsetPixel(2)*Nc/nc));
+
+    registered=movingFFT.*exp(i*2*pi*(-row_shift*Nr/nr-col_shift*Nc/nc));
     registered=registered.*exp(-i*phase);
-    % real() not abs(): the inverse transform of a translated real image is
-    % real bar numerical residue, whereas abs() would rectify any genuinely
-    % negative pixels (ScanImage data are signed).
+    % real() not abs(): the inverse transform of a translated real image
+    % is real bar numerical residue, whereas abs() would rectify any
+    % genuinely negative pixels (ScanImage data are signed).
     registered=real(ifft2(registered));
 
 end % shiftFrame
