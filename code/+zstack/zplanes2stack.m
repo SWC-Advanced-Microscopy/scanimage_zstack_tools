@@ -408,7 +408,7 @@ for ii = 1:nZslices % Z
             continue
         end
 
-        registeredChannel = zstack.registration.apply_ffttrans(thisZslice(:, :, :, kk), reg_coeffs(:,ii));
+        registeredChannel = zstack.registration.applyShifts(thisZslice(:, :, :, kk), reg_coeffs(:,ii));
         outStack(:, :, ii, kk) = int16(mean(registeredChannel, 3));
     end
 
