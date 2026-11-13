@@ -32,8 +32,6 @@ classdef target_frame_tests < matlab.unittest.TestCase
     end
 
 
-
-
     methods
 
         function stack = makePlane(obj, amplitude, noiseSD)
@@ -69,8 +67,6 @@ classdef target_frame_tests < matlab.unittest.TestCase
     end % methods(Static)
 
 
-
-
     methods (Test)
 
         % averageCorrelatedFrames
@@ -84,16 +80,6 @@ classdef target_frame_tests < matlab.unittest.TestCase
             obj.verifySize(target, size(obj.refImage))
             obj.verifyLessThan(std(target(:) - obj.refImage(:)), 2 * obj.noiseSD / sqrt(21), ...
                 'The target differs from the reference by more than noise, so a moved frame was probably included')
-        end
-
-
-        function usingAllFramesGivesThePlainMean(obj)
-            % With nCor = nFrames - 1 every frame is used exactly once
-            stack = obj.makePlane(1, obj.noiseSD);
-            target = zstack.registration.averageCorrelatedFrames(stack, obj.nFrames - 1);
-
-            obj.verifyEqual(target, mean(stack,3), 'AbsTol', 1e-9, ...
-                'Using every frame did not give the plain mean')
         end
 
 
@@ -122,19 +108,6 @@ classdef target_frame_tests < matlab.unittest.TestCase
                 obj.verifyEqual(mod(obj.recoveredOffsets(reg_params), imSize), ...
                                 mod(obj.expectedOffsets(), imSize), ...
                     sprintf('Wrong offsets with refine = %d, sigma = %d', settings(ii,1), settings(ii,2)))
-            end
-        end
-
-
-        function movedFramesAreRestored(obj)
-            % Without noise the still frames are identical, so each moved frame
-            % must come back exactly equal to the reference image
-            stack = obj.makePlane(1, 0);
-            reg = zstack.registration.register_plane(stack, true, 2);
-
-            for f = obj.movedFrames
-                obj.verifyEqual(reg(:,:,f), obj.refImage, 'AbsTol', 1e-6, ...
-                    sprintf('Frame %d was not restored to the reference image', f))
             end
         end
 

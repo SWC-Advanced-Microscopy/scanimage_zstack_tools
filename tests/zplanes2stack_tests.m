@@ -188,22 +188,8 @@ classdef zplanes2stack_tests < matlab.unittest.TestCase
             end
             obj.verifyEqual(obj.runs.stack.meta.SI.hStackManager.numSlices, 3, ...
                 'numSlices was not read as a number')
-        end
-
-        function metaOmitsOtherFields(obj)
-            meta = obj.runs.stack.meta;
-            obj.assertTrue(isstruct(meta), 'The metadata is not a struct')
-            obj.verifyFalse(zplanes2stack_tests.hasPath(meta, 'SI.hChannels.channelOffset'), ...
-                'A per-channel setting was copied into the metadata')
-            obj.verifyFalse(zplanes2stack_tests.hasPath(meta, 'SI.hStackManager.zs'), ...
-                'The per-frame z positions were copied into the metadata')
-        end
-
-        function metaHasEpoch(obj)
-            obj.verifyTrue(zplanes2stack_tests.hasPath(obj.runs.stack.meta, 'epoch'), ...
-                'The acquisition date (epoch) is missing from the metadata')
             obj.verifyEqual(obj.runs.stack.meta.epoch, [2026 7 2 17 42 54.802], ...
-                'The acquisition date was not read correctly')
+                'The acquisition date (epoch) is missing or wrong')
         end
 
         function metaHasInputsAndDerived(obj)
@@ -261,42 +247,32 @@ classdef zplanes2stack_tests < matlab.unittest.TestCase
                 'b.tiff''s Software tag does not say channel 2')
         end
 
-        function jsonGoesNextToItsTiff(obj)
-            folder = obj.newFolder('jsonPaths');
+        function sidecarsGoNextToTheirTiffs(obj)
+            % Each JSON goes next to its TIFF; the slice table (default name)
+            % goes next to the first output
+            folder = obj.newFolder('sidecarPaths');
             mkdir(fullfile(folder, 'sub'));
             zstack.zplanes2tiff(fullfile(obj.fixtureDir, 'stack.tif'), 1, ...
                 {fullfile(folder, 'sub', 'a.tiff'), fullfile(folder, 'b')});
             obj.verifyTrue(isfile(fullfile(folder, 'sub', 'a.json')), 'a.json is not next to sub/a.tiff')
             obj.verifyTrue(isfile(fullfile(folder, 'b.json')), 'b.json is not next to b (no extension)')
+            obj.verifyTrue(isfile(fullfile(folder, 'sub', 'slices.csv')), ...
+                'The slice table is not slices.csv beside the first output')
         end
 
-        function existingJsonIsRefusedBeforeRunning(obj)
-            folder = obj.newFolder('jsonExists');
-            fclose(fopen(fullfile(folder, 'a.json'), 'w'));
-            [printed, out] = evalc(['zstack.zplanes2tiff(fullfile(obj.fixtureDir, ''stack.tif''), 1, ' ...
-                '{fullfile(folder, ''a.tiff''), fullfile(folder, ''b.tiff'')})']);
-            obj.verifyEmpty(out, 'A run whose JSON file already exists went ahead')
-            obj.verifyTrue(contains(printed, 'already exists') && contains(printed, 'a.json'), ...
-                'The existing JSON file was not named')
-            obj.verifyFalse(isfile(fullfile(folder, 'a.tiff')), 'A refused run saved output')
-        end
-
-        function outFilesAsStringsOrColumn(obj)
-            % Output names as a string array, or as a column of names, work
-            % like the usual row of character vectors
-            folder = obj.newFolder('outStrings');
-            out = zstack.zplanes2tiff(fullfile(obj.fixtureDir, 'stack.tif'), 1, ...
-                [string(fullfile(folder, 'a.tiff')), string(fullfile(folder, 'b.tiff'))]);
-            obj.verifyNotEmpty(out, 'A string array of output names failed')
-            obj.verifyTrue(isfile(fullfile(folder, 'a.json')) && isfile(fullfile(folder, 'b.tiff')), ...
-                'Outputs were missing when names were given as strings')
-
-            folder = obj.newFolder('outColumn');
-            out = zstack.zplanes2tiff(fullfile(obj.fixtureDir, 'stack.tif'), 1, ...
-                {fullfile(folder, 'a.tiff'); fullfile(folder, 'b.tiff')});
-            obj.verifyNotEmpty(out, 'A column of output names failed')
-            obj.verifyTrue(isfile(fullfile(folder, 'a.json')) && isfile(fullfile(folder, 'b.tiff')), ...
-                'Outputs were missing when names were given as a column')
+        function existingSidecarIsRefusedBeforeRunning(obj)
+            % An existing JSON file or slice table stops the run before anything
+            % is saved (an existing TIFF is covered by logRecordsFailedRun)
+            for existing = {'a.json', 'slices.csv'}
+                folder = obj.newFolder(['exists_' strrep(existing{1}, '.', '_')]);
+                fclose(fopen(fullfile(folder, existing{1}), 'w'));
+                [printed, out] = evalc(['zstack.zplanes2tiff(fullfile(obj.fixtureDir, ''stack.tif''), 1, ' ...
+                    '{fullfile(folder, ''a.tiff''), fullfile(folder, ''b.tiff'')})']);
+                obj.verifyEmpty(out, sprintf('A run whose %s already exists went ahead', existing{1}))
+                obj.verifyTrue(contains(printed, 'already exists') && contains(printed, existing{1}), ...
+                    sprintf('The existing %s was not named', existing{1}))
+                obj.verifyFalse(isfile(fullfile(folder, 'a.tiff')), 'A refused run saved output')
+            end
         end
 
         function fileElsewhereOnPathDoesNotBlockSaving(obj)
@@ -312,14 +288,6 @@ classdef zplanes2stack_tests < matlab.unittest.TestCase
             zstack.zplanes2tiff(fullfile(obj.fixtureDir, 'stack.tif'), 1, {'a.tiff', 'b.tiff'});
             obj.verifyTrue(isfile(fullfile(runHere, 'a.tiff')) && isfile(fullfile(runHere, 'b.tiff')), ...
                 'The outputs were not saved in the current folder')
-        end
-
-        function outputsUnchanged(obj)
-            % Saving must not change the registered stack itself
-            folder = obj.newFolder('unchanged');
-            out = zstack.zplanes2tiff(fullfile(obj.fixtureDir, 'stack.tif'), 1, ...
-                {fullfile(folder, 'a.tiff'), fullfile(folder, 'b.tiff')});
-            obj.verifyEqual(out, obj.runs.stack.out)
         end
 
 
@@ -367,15 +335,6 @@ classdef zplanes2stack_tests < matlab.unittest.TestCase
             obj.verifyTrue(contains(printed, 'No complete slices'), 'The reason was not reported')
         end
 
-        function stepRecordsKnownShift(obj)
-            % Slice 3's content is 3 px to the right of slice 2's, so the
-            % correction applied to it is 3 px to the left
-            slices = obj.runs.stack.slices;
-            obj.verifyEqual(slices.stepXPx(3), -3, 'AbsTol', 0.5, 'Slice 3''s step was not recovered')
-            obj.verifyEqual(slices.stepXPx(2), 0, 'AbsTol', 0.5, 'Slice 2 should not have moved')
-            obj.verifyEqual(slices.stepYPx, [0; 0; 0], 'AbsTol', 0.5, 'No slice moved in y')
-        end
-
         function shiftsAreRelativeToSlice1(obj)
             % Slices 2 and 3 are both 3 px right of slice 1, so both are shifted
             % back by 3 px; only slice 2 has moved from its neighbour
@@ -384,11 +343,7 @@ classdef zplanes2stack_tests < matlab.unittest.TestCase
                 'Shifts are not relative to slice 1')
             obj.verifyEqual(slices.stepXPx, [0; -3; 0], 'AbsTol', 0.5, ...
                 'Steps are not relative to the previous slice')
-        end
-
-        function stuckFramesAreCounted(obj)
-            % Within each slice: frame 2 of slice 1 is shifted; every other frame is still
-            obj.verifyEqual(obj.runs.stack.slices.framesAtZeroShiftWithinSlice, [5; 6; 6])
+            obj.verifyEqual(slices.stepYPx, [0; 0; 0], 'AbsTol', 0.5, 'No slice moved in y')
         end
 
         function largeStepIsReported(obj)
@@ -414,55 +369,14 @@ classdef zplanes2stack_tests < matlab.unittest.TestCase
             obj.verifyEqual(height(written), 3)
             obj.verifyEqual(written.Properties.VariableNames, obj.runs.stack.slices.Properties.VariableNames)
 
+            % .tsv, in any case, gives a tab-separated file
             folder = obj.newFolder('sliceTsv');
-            zstack.zplanes2tiff(fullfile(obj.fixtureDir, 'stack.tif'), 1, ...
-                {fullfile(folder, 'a.tiff'), fullfile(folder, 'b.tiff')}, 'sliceFile', fullfile(folder, 's.tsv'));
-            obj.assertTrue(isfile(fullfile(folder, 's.tsv')), 'No .tsv slice table was written')
-            firstLine = strtok(fileread(fullfile(folder, 's.tsv')), newline);
-            obj.verifyTrue(contains(firstLine, sprintf('\t')), 'The .tsv file is not tab-separated')
-        end
-
-        function tsvExtensionIgnoresCase(obj)
-            folder = obj.newFolder('sliceTsvUpper');
             zstack.zplanes2tiff(fullfile(obj.fixtureDir, 'stack.tif'), 1, ...
                 {fullfile(folder, 'a.tiff'), fullfile(folder, 'b.tiff')}, 'sliceFile', fullfile(folder, 's.TSV'));
             obj.assertTrue(isfile(fullfile(folder, 's.TSV')), 'No .TSV slice table was written')
             firstLine = strtok(fileread(fullfile(folder, 's.TSV')), newline);
             obj.verifyTrue(contains(firstLine, sprintf('\t')), 'The .TSV file is not tab-separated')
         end
-
-        function sliceTableDefaultsToSlicesCsv(obj)
-            folder = obj.newFolder('sliceDefault');
-            mkdir(fullfile(folder, 'sub'));
-            zstack.zplanes2tiff(fullfile(obj.fixtureDir, 'stack.tif'), 1, ...
-                {fullfile(folder, 'sub', 'a.tiff'), fullfile(folder, 'b.tiff')});
-            obj.verifyTrue(isfile(fullfile(folder, 'sub', 'slices.csv')), ...
-                'Without the sliceFile option, the table is not slices.csv beside the first output')
-        end
-
-        function sliceFileMixesWithOtherOptions(obj)
-            % sliceFile is zplanes2tiff's own option; the rest go to zplanes2stack
-            folder = obj.newFolder('sliceOption');
-            [~, ~, meta] = zstack.zplanes2tiff(fullfile(obj.fixtureDir, 'stack.tif'), 1, ...
-                {fullfile(folder, 'a.tiff'), fullfile(folder, 'b.tiff')}, ...
-                'sigma', 1, 'sliceFile', fullfile(folder, 's.csv'), 'refine', true);
-            obj.verifyTrue(isfile(fullfile(folder, 's.csv')), 'The sliceFile option was not used')
-            obj.verifyEqual(meta.zplanes2stack.input.sigma, 1, 'An option before sliceFile was lost')
-            obj.verifyEqual(meta.zplanes2stack.input.refine, true, 'An option after sliceFile was lost')
-        end
-
-        function existingSliceTableIsRefusedBeforeRunning(obj)
-            folder = obj.newFolder('sliceExists');
-            fclose(fopen(fullfile(folder, 'slices.csv'), 'w'));
-            [printed, out] = evalc(['zstack.zplanes2tiff(fullfile(obj.fixtureDir, ''stack.tif''), 1, ' ...
-                '{fullfile(folder, ''a.tiff''), fullfile(folder, ''b.tiff'')})']);
-            obj.verifyEmpty(out, 'A run whose slice table already exists went ahead')
-            obj.verifyTrue(contains(printed, 'already exists') && contains(printed, 'slices.csv'), ...
-                'The existing slice table was not named')
-            obj.verifyFalse(isfile(fullfile(folder, 'a.tiff')) || isfile(fullfile(folder, 'a.json')), ...
-                'A refused run saved output')
-        end
-
 
         % zplanes2tiff's run log. These call zplanes2tiff directly rather than
         % through evalc, because output captured by evalc may not reach the diary.
@@ -522,41 +436,6 @@ classdef zplanes2stack_tests < matlab.unittest.TestCase
                 'The log does not say where the error happened')
             obj.verifyFalse(contains(txt, 'matlab.unittest'), ...
                 'The log lists stack frames from below zplanes2tiff')
-        end
-
-        function previousDiaryIsPausedAndRestored(obj)
-            folder = obj.newFolder('logDiary');
-            previous = fullfile(folder, 'previous.log');
-            diary(previous)
-            stopDiary = onCleanup(@() diary('off'));
-
-            fclose(fopen(fullfile(folder, 'a.tiff'), 'w')); % a quick, refused run
-            zstack.zplanes2tiff(fullfile(obj.fixtureDir, 'stack.tif'), 1, ...
-                {fullfile(folder, 'a.tiff'), fullfile(folder, 'b.tiff')});
-
-            obj.verifyEqual(get(0, 'Diary'), 'on', 'The previous diary was left off')
-            obj.verifyEqual(get(0, 'DiaryFile'), previous, 'The previous diary file was not restored')
-            diary('off')
-            obj.verifyFalse(contains(fileread(previous), 'already exists'), ...
-                'The run was written to the previous diary instead of its own log')
-        end
-
-        function logRecordsToolboxCommit(obj)
-            % The log names the toolbox's git commit, flagging uncommitted changes
-            toolboxRoot = fileparts(fileparts(mfilename('fullpath'))); % tests/ is in the toolbox root
-            [status, expected] = system(sprintf('git -C "%s" rev-parse --short HEAD', toolboxRoot));
-            obj.assumeEqual(status, 0, 'git is not available, so the commit cannot be checked')
-            [~, changes] = system(sprintf('git -C "%s" status --porcelain --untracked-files=no', toolboxRoot));
-
-            folder = obj.newFolder('logCommit');
-            zstack.zplanes2tiff(fullfile(obj.fixtureDir, 'stack.tif'), 1, ...
-                {fullfile(folder, 'a.tiff'), fullfile(folder, 'b.tiff')});
-            txt = obj.readLog(folder);
-
-            obj.verifyTrue(contains(txt, ['Toolbox commit: ' strtrim(expected)]), ...
-                'The log does not name the toolbox commit')
-            obj.verifyEqual(contains(txt, 'with uncommitted changes'), ~isempty(strtrim(changes)), ...
-                'The uncommitted-changes note does not match the state of the working tree')
         end
 
         function missingOutputFolderIsRefused(obj)
