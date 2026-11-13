@@ -1,4 +1,4 @@
-function varargout=apply_ffttrans(movingStack,target,params)
+function varargout=apply_ffttrans(movingStack,target,params,targetFFT)
     % Apply an FFT-based translation correction to an image or image time-series
     %
     % function [registered,stats] = zstack.registration.apply_ffttrans(movingStack,target,params)
@@ -23,6 +23,8 @@ function varargout=apply_ffttrans(movingStack,target,params)
     %          If not specified, defaults are used. See individual files for the
     %          defaults and possible options. Only parameters the user wants to alter
     %          need to be defined in the structure.
+    % targetFFT - [optional, used internally] fft2(target), so that it is computed
+    %             once per stack rather than once per frame.
     %
     % Outputs
     % registered - the registered movingStack.
@@ -68,35 +70,25 @@ function varargout=apply_ffttrans(movingStack,target,params)
 
         if p.verbose, tic, end
 
-        %Expand the target structure if it has a length of 1 so we can
-        %apply the same transformation to all frames of a movie.
+        nFrames=size(movingStack,3);
         registered=ones(size(movingStack));
 
-        if p.parallel
-            if isstruct(target) & length(target)>1
-                parfor ii=1:size(movingStack,3)
-                    [registered(:,:,ii),out(ii)]=...
-                        zstack.registration.apply_ffttrans(movingStack(:,:,ii),target(ii),p);
-                end
-            else
-                parfor ii=1:size(movingStack,3)
-                    [registered(:,:,ii),out(ii)]=...
-                        zstack.registration.apply_ffttrans(movingStack(:,:,ii),target,p);
-                end
-            end
+        % The target image's FFT is the same for every frame, so compute it once
+        if isnumeric(target), targetFFT=fft2(target); else, targetFFT=[]; end
 
-        else
-            if isstruct(target) & length(target)>1
-                for ii=1:size(movingStack,3)
-                    [registered(:,:,ii),out(ii)]=...
-                        zstack.registration.apply_ffttrans(movingStack(:,:,ii),target(ii),p);
-                end
+        % With 0 workers, parfor runs as an ordinary loop (no toolbox needed).
+        % Frames are independent, so the order they run in doesn't matter.
+        nWorkers=0;
+        if p.parallel, nWorkers=Inf; end
+
+        parfor (ii=1:nFrames, nWorkers)
+            if isstruct(target) && ~isscalar(target)
+                frameTarget=target(ii); % one set of shifts per frame
             else
-                for ii=1:size(movingStack,3)
-                    [registered(:,:,ii),out(ii)]=...
-                        zstack.registration.apply_ffttrans(movingStack(:,:,ii),target,p);
-                end
+                frameTarget=target;     % an image, or one set of shifts for every frame
             end
+            [registered(:,:,ii),out(ii)]=...
+                zstack.registration.apply_ffttrans(movingStack(:,:,ii),frameTarget,p,targetFFT);
         end
 
         % Match the class of the "before" data to that of the registered output.
@@ -113,9 +105,7 @@ function varargout=apply_ffttrans(movingStack,target,params)
             tmp.routine=regexprep(mfilename,'apply_','');
             tmp.params=p;
             if isnumeric(target), tmp.target=target; end
-            for ii=1:size(movingStack,3)
-                tmp.coef(ii)=out(ii).coef;
-            end
+            tmp.coef=[out.coef];
             varargout{2}=tmp;
         end
 
@@ -142,15 +132,11 @@ function varargout=apply_ffttrans(movingStack,target,params)
     %EITHER Register images
     if isnumeric(target)
         if ~any(size(movingStack)-size(target))
-            targetFFT=fft2(target);
+            if nargin<4 || isempty(targetFFT), targetFFT=fft2(target); end
             movingFFT=fft2(movingStack);
-            [output,Greg,phase] = ...
-                dftregistration(targetFFT,movingFFT,p.usfac);
+            output = dftregistration(targetFFT,movingFFT,p.usfac);
             OffsetPixel=output([3,4]);
-            % real() not abs(): the inverse transform of a translated real image
-            % is real bar numerical residue, whereas abs() would rectify any
-            % genuinely negative pixels (ScanImage data are signed).
-            registered=real(ifft2(Greg));
+            phase=output(2);
         else
             fprintf('Failed to register moving image to target image\n\n\n')
             return
@@ -165,21 +151,10 @@ function varargout=apply_ffttrans(movingStack,target,params)
         phase=target.diffPhase;
         target=[];
 
-        row_shift=OffsetPixel(1);
-        col_shift=OffsetPixel(2);
-
-        movingFFT=fft2(movingStack);
-
-        [nr,nc,~]=size(movingStack);
-        Nr = ifftshift([-fix(nr/2):ceil(nr/2)-1]);
-        Nc = ifftshift([-fix(nc/2):ceil(nc/2)-1]);
-        [Nc,Nr] = meshgrid(Nc,Nr);
-
-        registered=movingFFT.*exp(i*2*pi*(-row_shift*Nr/nr-col_shift*Nc/nc));
-        registered=registered.*exp(-i*phase);
-        registered=real(ifft2(registered)); % real() not abs(): see above
-
     end
+
+    % Translate movingStack by the shift, whichever way it was obtained
+    registered=shiftFrame(movingStack,OffsetPixel,phase);
 
 
 
@@ -197,3 +172,34 @@ function varargout=apply_ffttrans(movingStack,target,params)
     end
 
 end % apply_ffttrans
+
+
+function registered=shiftFrame(movingStack,OffsetPixel,phase)
+    % Translate one frame by OffsetPixel ([row column]) and apply the phase term
+    %
+    % For whole-pixel shifts (usfac = 1) the Fourier phase ramp below is exactly a
+    % circular shift, and taking the real part reduces the phase term to
+    % cos(phase) (in practice phase is 0 for real images, so this is 1).
+    if all(OffsetPixel==round(OffsetPixel))
+        registered=cos(phase)*circshift(double(movingStack),OffsetPixel);
+        return
+    end
+
+    row_shift=OffsetPixel(1);
+    col_shift=OffsetPixel(2);
+
+    movingFFT=fft2(movingStack);
+
+    [nr,nc,~]=size(movingStack);
+    Nr = ifftshift([-fix(nr/2):ceil(nr/2)-1]);
+    Nc = ifftshift([-fix(nc/2):ceil(nc/2)-1]);
+    [Nc,Nr] = meshgrid(Nc,Nr);
+
+    registered=movingFFT.*exp(i*2*pi*(-row_shift*Nr/nr-col_shift*Nc/nc));
+    registered=registered.*exp(-i*phase);
+    % real() not abs(): the inverse transform of a translated real image
+    % is real bar numerical residue, whereas abs() would rectify any
+    % genuinely negative pixels (ScanImage data are signed).
+    registered=real(ifft2(registered));
+
+end % shiftFrame
