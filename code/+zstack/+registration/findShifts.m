@@ -24,10 +24,8 @@ function [coef,stats]=findShifts(movingStack,target,params)
     % coef - structure array, one element per frame, with fields:
     %        diffPhase - global phase difference (0 for real images in practice).
     %        OffsetPixel - [row column] shift that aligns the frame with target.
-    % stats - [optional] the registration details, as apply_ffttrans used to return
-    %         them (only built if asked for):
+    % stats - [optional] the registration details (only built if asked for):
     %         before - movingStack, as double.
-    %         after - movingStack with the shifts applied.
     %         routine - 'ffttrans'.
     %         params - the parameters used.
     %         target - the target image.
@@ -83,7 +81,6 @@ function [coef,stats]=findShifts(movingStack,target,params)
 
     if nargout>1
         stats.before=double(movingStack);
-        stats.after=zstack.registration.applyShifts(movingStack,coef,p);
         stats.routine='ffttrans';
         stats.params=p;
         stats.target=target;
