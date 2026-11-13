@@ -160,6 +160,21 @@ classdef registration_tests < matlab.unittest.TestCase
             obj.verifyError(@() zstack.registration.findShifts(stack, obj.refImage(1:10,:)), ...
                 'zstack:findShifts:sizeMismatch')
         end
+
+        function findShiftsReturnsStats(obj)
+            % The optional stats output keeps the fields apply_ffttrans returned
+            stack = obj.makeShiftedStack(obj.refImage);
+            [coef, stats] = zstack.registration.findShifts(stack, obj.refImage);
+            obj.assertEqual(sort(fieldnames(stats)), ...
+                sort({'before'; 'after'; 'routine'; 'params'; 'target'; 'coef'}), ...
+                'stats does not have the expected fields')
+            obj.verifyEqual(stats.coef, coef)
+            obj.verifyEqual(stats.before, double(stack))
+            obj.verifyEqual(stats.after, zstack.registration.applyShifts(stack, coef))
+            obj.verifyEqual(stats.target, obj.refImage)
+            obj.verifyEqual(stats.routine, 'ffttrans')
+            obj.verifyEqual(stats.params.usfac, 1)
+        end
     end % methods (Test)
 
 
