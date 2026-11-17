@@ -40,9 +40,14 @@ output file per saved channel, in the order ScanImage saved them.
 Each file's metadata (the acquisition settings, the inputs used and values derived during the run)
 is saved twice: in the TIFF's `Software` tag, and as a JSON file of the same name beside it
 (`red.json`, `green.json`); see `help zstack.zplanes2stack`.
-To get the registered stack without saving it, use `zstack.zplanes2stack(filename, 2)`.
+It also saves `slices.csv` beside the first output: one row per slice, with its z position, the
+shift applied to bring it into line with slice 1, the step from the previous slice, and how many of
+its frames the within-slice registration left unshifted. Choose another name with
+`'sliceFile', 'name.csv'` (or `.tsv` for a tab-separated file), e.g. to save two stacks in one folder.
 Each run is logged to `zplanes2tiff_<date>_<time>.log` beside the first output file, ending with a
 `Result:` line (SUCCESS, FAILED or ERROR).
+
+To get the registered stack without saving it, use `zstack.zplanes2stack(filename, 2)`.
 
 
 # Recording a zstack easily in ScanImage
