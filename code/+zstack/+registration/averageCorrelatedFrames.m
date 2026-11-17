@@ -11,7 +11,8 @@ function avgFrame = averageCorrelatedFrames(frames, nCor)
 % Inputs
 % frames - all frames from one plane/slice
 % nCor   - the number of frames to use when evaluating the most highly
-%          correlated frame (optional; defaults to 20)
+%          correlated frame. Capped at the number of frames minus one
+%          (optional; defaults to 20).
 %
 % Outputs
 % avgFrame - a single averaged frame for the slice, suitable for use as a
@@ -30,6 +31,11 @@ flattenedFrames = reshape(frames, height * width, t);
 % self-correlated frames as top correlated pairs.
 R = corrcoef(double(flattenedFrames)); 
 R(1:t+1:end) = -Inf;
+
+% Cap nCor in case a slice has fewer than nCor + 1 frames.
+% Without this, the -Inf diagonal gets erroneously picked up by the
+% maxk call below and pollutes the subsequent logic.
+nCor = min(nCor, t - 1);
 
 % For each frame, find its nCor most correlated frames (excluding itself)
 [topFrames, topIdxs] = maxk(R, nCor, 2);
