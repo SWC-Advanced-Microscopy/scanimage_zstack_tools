@@ -1,13 +1,15 @@
-function [out, channels, header] = zplanes2tiff(fname, chan, outFiles, varargin)
+function [out, channels, meta] = zplanes2tiff(fname, chan, outFiles, varargin)
 % Build a fully-registered z-stack and save one TIFF per channel.
 %
-% function [out, channels, header] = zstack.zplanes2tiff(fname, chan, outFiles, Name=Value)
+% function [out, channels, meta] = zstack.zplanes2tiff(fname, chan, outFiles, Name=Value)
 %
 % Purpose
 % Runs zstack.zplanes2stack, then saves each channel of the result as a
-% signed 16-bit TIFF with zstack.io.writeSignedTiff. The header returned by
-% zplanes2stack goes into the Software tag of every file, followed by a
-% zplanes2stack.derived.channel line giving the channel that file holds.
+% signed 16-bit TIFF with zstack.io.writeSignedTiff. The metadata returned
+% by zplanes2stack, plus zplanes2stack.derived.channel giving the channel
+% that file holds, is saved twice for each file: as "name = value" lines in
+% the TIFF's Software tag, and as a JSON file with the same name as the
+% TIFF (e.g. green.json next to green.tiff).
 %
 % The output file names are checked before registration starts, so a
 % mistake there doesn't waste a long run.
@@ -24,14 +26,14 @@ function [out, channels, header] = zplanes2tiff(fname, chan, outFiles, varargin)
 % fname - relative or absolute path to a ScanImage TIFF stack on disk.
 % chan - the channel used to calculate the registration.
 % outFiles - cell array of output file names, one per saved channel, in the
-%            order ScanImage saved them (its channelSave setting). Files
-%            must not already exist.
+%            order ScanImage saved them (its channelSave setting). Neither
+%            these files nor their JSON files may already exist.
 %
 % Optional name-value arguments
 % Passed on to zstack.zplanes2stack; see its help.
 %
 % Outputs
-% out, channels, header - as returned by zstack.zplanes2stack.
+% out, channels, meta - as returned by zstack.zplanes2stack.
 %
 % Examples
 %
@@ -48,7 +50,7 @@ end
 
 out = []; % in case of an error
 channels = [];
-header = '';
+meta = struct();
 
 % Refuse output folders that don't exist before anything else. The log goes
 % in the first one, and a missing folder would otherwise only fail at the
@@ -96,7 +98,7 @@ elapsed = @() char(duration(0, 0, toc(startTime), 'Format', 'hh:mm:ss'));
 
 % Do the work, recording any error in the log before raising it as usual
 try
-    [out, channels, header] = registerAndSave(fname, chan, outFiles, varargin{:});
+    [out, channels, meta] = registerAndSave(fname, chan, outFiles, varargin{:});
 catch ME
     % List the stack only down to this function: frames below it belong to
     % whatever called zplanes2tiff, and say nothing about why the run failed.
@@ -120,13 +122,13 @@ end
 end % zplanes2tiff
 
 
-function [out, channels, header] = registerAndSave(fname, chan, outFiles, varargin)
-% Check the outputs, register the stack and save one TIFF per channel.
-% Returns empty outputs, after printing why, if nothing was saved.
+function [out, channels, meta] = registerAndSave(fname, chan, outFiles, varargin)
+% Check the outputs, register the stack and save one TIFF and JSON file per
+% channel. Returns empty outputs, after printing why, if nothing was saved.
 
 out = [];
 channels = [];
-header = '';
+meta = struct();
 
 % Check the output files before the long registration step
 metadata = zstack.io.read_SI_TIFF_header(fname);
@@ -137,25 +139,57 @@ if length(outFiles) ~= nChannels
     return
 end
 
-existing = outFiles(cellfun(@isfile, outFiles));
+% Each TIFF's JSON file has the same name, with the extension .json
+jsonFiles = cell(size(outFiles));
+for k = 1:length(outFiles)
+    [folder, name] = fileparts(outFiles{k});
+    jsonFiles{k} = fullfile(folder, [name '.json']);
+end
+
+existing = [outFiles(:); jsonFiles(:)];
+existing = existing(cellfun(@isfile, existing));
 if ~isempty(existing)
     fprintf('Output file already exists: %s\n', existing{:})
     return
 end
 
-[out, channels, header] = zstack.zplanes2stack(fname, chan, varargin{:});
+[out, channels, meta] = zstack.zplanes2stack(fname, chan, varargin{:});
 if isempty(out)
     return
 end
 
-% Save each channel, adding the channel number to its header
+% Save each channel with its metadata, adding the channel number, both in
+% the TIFF's Software tag and as a JSON file
 for k = 1:length(channels)
-    fprintf('Saving channel %d to %s\n', channels(k), outFiles{k})
-    zstack.io.writeSignedTiff(out(:,:,:,k), outFiles{k}, ...
-        [header sprintf('zplanes2stack.derived.channel = %d\n', channels(k))])
+    metaK = meta;
+    metaK.zplanes2stack.derived.channel = channels(k);
+
+    fprintf('Saving channel %d to %s and %s\n', channels(k), outFiles{k}, jsonFiles{k})
+    zstack.io.writeSignedTiff(out(:,:,:,k), outFiles{k}, meta2text(metaK, ''))
+
+    fid = fopen(jsonFiles{k}, 'w');
+    fprintf(fid, '%s\n', jsonencode(metaK, 'PrettyPrint', true)); % PrettyPrint needs R2021a
+    fclose(fid);
 end
 
 end % registerAndSave
+
+
+function txt = meta2text(s, prefix)
+% Write a metadata struct as "name = value" lines, one per field. Nested
+% structs give dotted names, e.g. SI.hStackManager.numSlices = 350
+txt = '';
+for f = fieldnames(s)'
+    name = [prefix f{1}];
+    value = s.(f{1});
+    if isstruct(value)
+        txt = [txt meta2text(value, [name '.'])]; %#ok<AGROW>
+    else
+        txt = [txt sprintf('%s = %s\n', name, mat2str(value))]; %#ok<AGROW>
+    end
+end
+
+end % meta2text
 
 
 function resumeDiary(previousState, previousFile)

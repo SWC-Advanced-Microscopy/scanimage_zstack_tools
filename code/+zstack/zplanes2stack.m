@@ -1,7 +1,7 @@
-function [out, channels, header] = zplanes2stack(fname, chan, opts)
+function [out, channels, meta] = zplanes2stack(fname, chan, opts)
 % Build a fully-registered z-stack from a multi-plane series.
 %
-% function [out, channels, header] = zstack.zplanes2stack(fname, chan, Name=Value)
+% function [out, channels, meta] = zstack.zplanes2stack(fname, chan, Name=Value)
 %
 % Purpose
 % Feed in an unregistered set of z-planes in ZTCYX format (e.g., such that
@@ -48,20 +48,21 @@ function [out, channels, header] = zplanes2stack(fname, chan, opts)
 % out - a 4D array (Y, X, Z, channel) containing the registered z-stack.
 % channels - a 1D array containing the channel numbers corresponding to the
 %            4th dimension of `out`.
-% header - text for the Software tag of the saved TIFFs, in ScanImage's
-%          "name = value" format. It holds, in order:
-%          - SI.*: acquisition settings that apply to every channel,
-%            copied from the ScanImage header. Per-channel settings (e.g.
-%            channel offsets, PMT gains) are not included. Any requested
-%            field not found in the ScanImage header is named in the
-%            command window and left out.
-%          - epoch: the acquisition date and time, copied from the first
-%            frame's ImageDescription.
-%          - zplanes2stack.input.*: the inputs to this function.
-%          - zplanes2stack.derived.*: values describing `out`: the slices
-%            kept, the edge crop, the pixel size and the bidirectional
-%            shift applied.
-%          zstack.zplanes2tiff saves `out` with this header.
+% meta - a struct of metadata describing `out`, with fields:
+%        - SI: acquisition settings that apply to every channel, copied
+%          from the ScanImage header and nested as ScanImage names them
+%          (e.g. meta.SI.hStackManager.numSlices). Per-channel settings
+%          (e.g. channel offsets, PMT gains) are not included. Any
+%          requested field not found in the ScanImage header is named in
+%          the command window and left out.
+%        - epoch: the acquisition date and time, from the first frame's
+%          ImageDescription.
+%        - zplanes2stack.input: the inputs to this function.
+%        - zplanes2stack.derived: values describing `out`: the slices
+%          kept, the edge crop, the pixel size and the bidirectional shift
+%          applied.
+%        zstack.zplanes2tiff saves `out` with this metadata, both in each
+%        TIFF's Software tag and as a JSON file.
 %
 % Examples
 %
@@ -71,7 +72,7 @@ function [out, channels, header] = zplanes2stack(fname, chan, opts)
 % - The same, but high-pass filter the data first
 % >> OUT = zstack.zplanes2stack('myUnregisteredZstack.tif',1,freq_cutoff=0.015);
 %
-% - To register and save one TIFF per channel with the header, see
+% - To register and save one TIFF per channel with its metadata, see
 %   zstack.zplanes2tiff
 arguments
     fname {mustBeFile}
@@ -88,7 +89,7 @@ fprintf('zplanes2stack: %s, chan %d\n', fname, chan); disp(opts)
 % In case of an error
 out = [];
 channels = [];
-header = '';
+meta = struct();
 
 % Preemptively promote fname to a cell array in case our stack is split
 % across multiple files.
@@ -405,9 +406,9 @@ for ii = 2:nZslices
 
 end
 
-%% Build header for the saved TIFFs
+%% Build the metadata for the saved TIFFs
 % Copy a short list of acquisition settings from the ScanImage header. These
-% apply to every channel, so the same text can go into each channel's file.
+% apply to every channel, so the same metadata can go into each channel's file.
 siFields = { ...
     'SI.VERSION_MAJOR', ...
     'SI.VERSION_MINOR', ...
@@ -444,15 +445,24 @@ if ~isempty(missing)
     fprintf('The following were not present in the ScanImage header and have not been saved: %s\n', strjoin(missing(:)', ', '))
 end
 
+% Store each "SI.a.b = value" line as meta.SI.a.b, converting the value text
+% as read_SI_TIFF_header does. The acquisition date goes in as meta.epoch.
+% We do this conversion so that the metadata can be easily saved as a JSON
+% file using jsonencode (which supports structs out-of-the-box).
+for ii = 1:length(siLines)
+    parts = strsplit(extractBefore(siLines{ii}, ' = '), '.');
+    meta = setfield(meta, parts{:}, eval(extractAfter(siLines{ii}, ' = ')));
+end
+if ~isempty(epochLine)
+    meta.epoch = eval(extractAfter(epochLine{1}, ' = '));
+end
+
 % Then add the inputs to this function, named as its arguments, so the run
 % can be repeated.
-inputLines = sprintf([ ...
-    'zplanes2stack.input.chan = %d\n', ...
-    'zplanes2stack.input.refine = %d\n', ...
-    'zplanes2stack.input.sigma = %g\n', ...
-    'zplanes2stack.input.freq_cutoff = %g\n', ...
-    'zplanes2stack.input.needsBidiCorrection = %d\n'], ...
-    chan, opts.refine, opts.sigma, opts.freq_cutoff, opts.needsBidiCorrection);
+meta.zplanes2stack.input.chan = chan;
+for f = fieldnames(opts)'
+    meta.zplanes2stack.input.(f{1}) = opts.(f{1});
+end
 
 % Finally add values derived during the run, which describe `out` rather
 % than the raw data. The number of slices kept differs from numSlices if the
@@ -464,14 +474,10 @@ pixelSizeUm = [ ...
     (max(fov(:,1)) - min(fov(:,1))) / metadata.ImageWidth, ...
     (max(fov(:,2)) - min(fov(:,2))) / metadata.ImageLength ...
     ];
-derivedLines = sprintf([ ...
-    'zplanes2stack.derived.slicesSaved = %d\n', ...
-    'zplanes2stack.derived.cropEdgePixels = %d\n', ...
-    'zplanes2stack.derived.pixelSizeUm = [%g %g]\n', ...
-    'zplanes2stack.derived.bidiShiftPixels = %d\n'], ...
-    nZslices, cropEdgePixels, pixelSizeUm, bidishiftpixels);
-
-header = [sprintf('%s\n', siLines{:}), sprintf('%s\n', epochLine{:}), inputLines, derivedLines];
+meta.zplanes2stack.derived.slicesSaved = nZslices;
+meta.zplanes2stack.derived.cropEdgePixels = cropEdgePixels;
+meta.zplanes2stack.derived.pixelSizeUm = pixelSizeUm;
+meta.zplanes2stack.derived.bidiShiftPixels = bidishiftpixels;
 
 out = outStack;
 channels = savedChannelID;
