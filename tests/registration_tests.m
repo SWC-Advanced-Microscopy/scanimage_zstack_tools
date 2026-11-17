@@ -56,7 +56,7 @@ classdef registration_tests < matlab.unittest.TestCase
         function registrationRecoversTheOriginalFrames(obj)
             % Each shifted frame must come back equal to the reference image
             stack = obj.makeShiftedStack(obj.refImage);
-            reg = zstack.registration.apply_ffttrans(stack, obj.refImage);
+            reg = zstack.registration.applyShifts(stack, zstack.registration.findShifts(stack, obj.refImage));
 
             for ii = 1:size(stack,3)
                 obj.verifyEqual(reg(:,:,ii), obj.refImage, 'AbsTol', 1e-6, ...
@@ -68,7 +68,7 @@ classdef registration_tests < matlab.unittest.TestCase
         function pixelValuesArePreserved(obj)
             % A whole-pixel shift permutes pixels, so the sorted values must match
             stack = obj.makeShiftedStack(obj.refImage);
-            reg = zstack.registration.apply_ffttrans(stack, obj.refImage);
+            reg = zstack.registration.applyShifts(stack, zstack.registration.findShifts(stack, obj.refImage));
 
             for ii = 1:size(stack,3)
                 obj.verifyEqual(sort(reshape(reg(:,:,ii),[],1)), ...
@@ -86,7 +86,7 @@ classdef registration_tests < matlab.unittest.TestCase
             obj.assumeLessThan(min(im(:)), 0, 'Test image should contain negatives')
 
             stack = obj.makeShiftedStack(im);
-            reg = zstack.registration.apply_ffttrans(stack, im);
+            reg = zstack.registration.applyShifts(stack, zstack.registration.findShifts(stack, im));
 
             obj.verifyLessThan(min(reg(:)), 0, ...
                 'All negative pixels were lost, which suggests rectification')
@@ -104,34 +104,22 @@ classdef registration_tests < matlab.unittest.TestCase
             im(10,10) = 1e6; % A hot pixel in the reference only
 
             stack = obj.makeShiftedStack(obj.refImage);
-            reg = zstack.registration.apply_ffttrans(stack, im);
+            reg = zstack.registration.applyShifts(stack, zstack.registration.findShifts(stack, im));
 
             obj.verifyEqual(max(reg(:)), max(obj.refImage(:)), 'RelTol', 1e-6, ...
                 'A hot pixel in the target changed the scale of the moving data')
         end
 
 
-        function storedCoefficientsGiveTheSameResult(obj)
-            % Applying stored coefficients (as done for the non-registration
-            % channels) must match registering directly.
-            stack = obj.makeShiftedStack(obj.refImage);
-            [regDirect, stats] = zstack.registration.apply_ffttrans(stack, obj.refImage);
-            regFromCoefs = zstack.registration.apply_ffttrans(stack, stats.coef);
-
-            obj.verifyEqual(regFromCoefs, regDirect, 'AbsTol', 1e-6, ...
-                'The coefficient path disagrees with direct registration')
-        end
-
-
         function diffPhaseIsZero(obj)
             % The phase term should be ~0 for real images with a positive
             % correlation peak. If this holds the exp(i*phase) multiplies in
-            % apply_ffttrans are no-ops and could be removed.
+            % applyShifts are no-ops and could be removed.
             stack = obj.makeShiftedStack(obj.refImage);
-            [~, stats] = zstack.registration.apply_ffttrans(stack, obj.refImage);
+            coef = zstack.registration.findShifts(stack, obj.refImage);
 
-            for ii = 1:length(stats.coef)
-                obj.verifyEqual(stats.coef(ii).diffPhase, 0, 'AbsTol', 1e-9, ...
+            for ii = 1:length(coef)
+                obj.verifyEqual(coef(ii).diffPhase, 0, 'AbsTol', 1e-9, ...
                     sprintf('diffPhase was not ~0 for frame %d', ii))
             end
         end
@@ -140,9 +128,10 @@ classdef registration_tests < matlab.unittest.TestCase
         function shiftsAreRecovered(obj)
             % The reported offsets must undo the shifts we applied
             stack = obj.makeShiftedStack(obj.refImage);
-            [~, stats] = zstack.registration.apply_ffttrans(stack, obj.refImage);
+            coef = zstack.registration.findShifts(stack, obj.refImage);
+            obj.assertNumElements(coef, size(stack,3), 'Expected one set of shifts per frame')
 
-            recovered = cell2mat(arrayfun(@(x) x.OffsetPixel(:)', stats.coef, 'uni', false)');
+            recovered = cell2mat(arrayfun(@(x) x.OffsetPixel(:)', coef, 'uni', false)');
 
             % Shifts wrap, so compare modulo the image size
             imSize = [size(obj.refImage,1), size(obj.refImage,2)];
@@ -151,6 +140,40 @@ classdef registration_tests < matlab.unittest.TestCase
                 'Recovered pixel offsets do not undo the applied shifts')
         end
 
+
+
+        % findShifts and applyShifts: finding and applying shifts as separate steps
+
+        function applyShiftsWithOneShiftMovesEveryFrame(obj)
+            % A single set of shifts is applied to every frame alike
+            stack = repmat(obj.refImage, 1, 1, 3);
+            oneShift = struct('diffPhase', 0, 'OffsetPixel', [3 -5]);
+            reg = zstack.registration.applyShifts(stack, oneShift);
+            for ii = 1:3
+                obj.verifyEqual(reg(:,:,ii), circshift(obj.refImage, [3 -5]), 'AbsTol', 1e-6, ...
+                    sprintf('Frame %d was not shifted by the single set of shifts', ii))
+            end
+        end
+
+        function findShiftsRejectsWrongSizeReference(obj)
+            stack = obj.makeShiftedStack(obj.refImage);
+            obj.verifyError(@() zstack.registration.findShifts(stack, obj.refImage(1:10,:)), ...
+                'zstack:findShifts:sizeMismatch')
+        end
+
+        function findShiftsReturnsStats(obj)
+            % The optional stats output holds the registration details
+            stack = obj.makeShiftedStack(obj.refImage);
+            [coef, stats] = zstack.registration.findShifts(stack, obj.refImage);
+            obj.assertEqual(sort(fieldnames(stats)), ...
+                sort({'before'; 'routine'; 'params'; 'target'; 'coef'}), ...
+                'stats does not have the expected fields')
+            obj.verifyEqual(stats.coef, coef)
+            obj.verifyEqual(stats.before, double(stack))
+            obj.verifyEqual(stats.target, obj.refImage)
+            obj.verifyEqual(stats.routine, 'ffttrans')
+            obj.verifyEqual(stats.params.usfac, 1)
+        end
     end % methods (Test)
 
 
