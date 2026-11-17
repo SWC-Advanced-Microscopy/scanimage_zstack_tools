@@ -19,18 +19,20 @@ function [out, channels, meta, slices] = zplanes2tiff(fname, chan, outFiles, opt
 %
 % Each run is logged: everything printed to the command window goes to
 % zplanes2tiff_<date>_<time>.log in the folder of the first output file.
-% The log starts with this toolbox's git commit (flagging uncommitted
-% changes) and ends with one line giving the result: SUCCESS, FAILED
-% (nothing saved; the reason is printed above it) or ERROR (followed by the
-% error being raised as usual). A diary you already had running is paused
+% The log begins with the start time, machine and MATLAB version, this
+% toolbox's git commit (flagging uncommitted changes) and the inputs. It
+% ends with one line giving the result: SUCCESS (listing every file saved),
+% FAILED (nothing saved; the reason is printed above it) or ERROR (followed
+% by the error being raised as usual). A diary you already had running is paused
 % for the run and resumed afterwards.
 %
 % Inputs
 % fname - relative or absolute path to a ScanImage TIFF stack on disk.
 % chan - the channel used to calculate the registration.
-% outFiles - cell array of output file names, one per saved channel, in the
-%            order ScanImage saved them (its channelSave setting). Neither
-%            these files nor their JSON files may already exist.
+% outFiles - output file names, as a cell array or string array, one per
+%            saved channel, in the order ScanImage saved them (its
+%            channelSave setting). Neither these files nor their JSON
+%            files may already exist.
 %
 % Optional name-value arguments
 % sliceFile - file name for the per-slice table. Default: slices.csv in the
@@ -54,7 +56,7 @@ function [out, channels, meta, slices] = zplanes2tiff(fname, chan, outFiles, opt
 arguments
     fname {mustBeFile}
     chan % validated by zplanes2stack
-    outFiles cell
+    outFiles {mustBeA(outFiles, ["cell", "string"]), mustBeText}
     opts.sliceFile {mustBeTextScalar} = fullfile(fileparts(outFiles{1}), 'slices.csv')
     % zplanes2stack's options, passed on unchanged. No defaults here, so only
     % those given are passed on, and zplanes2stack's own defaults and checks
@@ -69,6 +71,14 @@ out = []; % in case of an error
 channels = [];
 meta = struct();
 slices = table();
+outFiles = reshape(cellstr(outFiles), 1, []); % a row of char vectors, however they were given
+
+% Each TIFF's JSON file has the same name, with the extension .json
+jsonFiles = cell(size(outFiles));
+for k = 1:length(outFiles)
+    [folder, name] = fileparts(outFiles{k});
+    jsonFiles{k} = fullfile(folder, [name '.json']);
+end
 sliceFile = char(opts.sliceFile);
 stackArgs = namedargs2cell(stackOpts); % e.g. {'sigma', 2}
 
@@ -118,7 +128,7 @@ elapsed = @() char(duration(0, 0, toc(startTime), 'Format', 'hh:mm:ss'));
 
 % Do the work, recording any error in the log before raising it as usual
 try
-    [out, channels, meta, slices] = registerAndSave(fname, chan, outFiles, sliceFile, stackArgs{:});
+    [out, channels, meta, slices] = registerAndSave(fname, chan, outFiles, jsonFiles, sliceFile, stackArgs{:});
 catch ME
     % List the stack only down to this function: frames below it belong to
     % whatever called zplanes2tiff, and say nothing about why the run failed.
@@ -136,13 +146,13 @@ end
 if isempty(out)
     fprintf('Result: FAILED - nothing saved, see messages above (%s)\n', elapsed())
 else
-    fprintf('Result: SUCCESS - saved %s and %s (%s)\n', strjoin(outFiles, ', '), sliceFile, elapsed())
+    fprintf('Result: SUCCESS - saved %s (%s)\n', strjoin([outFiles, jsonFiles, {sliceFile}], ', '), elapsed())
 end
 
 end % zplanes2tiff
 
 
-function [out, channels, meta, slices] = registerAndSave(fname, chan, outFiles, sliceFile, varargin)
+function [out, channels, meta, slices] = registerAndSave(fname, chan, outFiles, jsonFiles, sliceFile, varargin)
 % Check the outputs, register the stack, save one TIFF and JSON file per
 % channel and the slice table. Returns empty outputs, after printing why, if
 % nothing was saved.
@@ -159,13 +169,6 @@ if length(outFiles) ~= nChannels
     fprintf('%d output files given, but the stack has %d saved channels\n', ...
         length(outFiles), nChannels)
     return
-end
-
-% Each TIFF's JSON file has the same name, with the extension .json
-jsonFiles = cell(size(outFiles));
-for k = 1:length(outFiles)
-    [folder, name] = fileparts(outFiles{k});
-    jsonFiles{k} = fullfile(folder, [name '.json']);
 end
 
 existing = [outFiles(:); jsonFiles(:); {sliceFile}];

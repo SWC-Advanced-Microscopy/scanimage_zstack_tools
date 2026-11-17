@@ -252,6 +252,13 @@ classdef zplanes2stack_tests < matlab.unittest.TestCase
                 obj.verifyTrue(contains(software, [names{ii} ' = ' mat2str(values{ii})]), ...
                     sprintf('%s is missing from, or differs in, the Software tag', names{ii}))
             end
+
+            % The second file holds channel 2, in both its JSON and Software tag
+            jsonB = jsondecode(fileread(fullfile(folder, 'b.json')));
+            obj.verifyEqual(jsonB.zplanes2stack.derived.channel, 2, 'b.json does not say channel 2')
+            infoB = imfinfo(fullfile(folder, 'b.tiff')); % one entry per page
+            obj.verifyTrue(contains(infoB(1).Software, 'zplanes2stack.derived.channel = 2'), ...
+                'b.tiff''s Software tag does not say channel 2')
         end
 
         function jsonGoesNextToItsTiff(obj)
@@ -272,6 +279,39 @@ classdef zplanes2stack_tests < matlab.unittest.TestCase
             obj.verifyTrue(contains(printed, 'already exists') && contains(printed, 'a.json'), ...
                 'The existing JSON file was not named')
             obj.verifyFalse(isfile(fullfile(folder, 'a.tiff')), 'A refused run saved output')
+        end
+
+        function outFilesAsStringsOrColumn(obj)
+            % Output names as a string array, or as a column of names, work
+            % like the usual row of character vectors
+            folder = obj.newFolder('outStrings');
+            out = zstack.zplanes2tiff(fullfile(obj.fixtureDir, 'stack.tif'), 1, ...
+                [string(fullfile(folder, 'a.tiff')), string(fullfile(folder, 'b.tiff'))]);
+            obj.verifyNotEmpty(out, 'A string array of output names failed')
+            obj.verifyTrue(isfile(fullfile(folder, 'a.json')) && isfile(fullfile(folder, 'b.tiff')), ...
+                'Outputs were missing when names were given as strings')
+
+            folder = obj.newFolder('outColumn');
+            out = zstack.zplanes2tiff(fullfile(obj.fixtureDir, 'stack.tif'), 1, ...
+                {fullfile(folder, 'a.tiff'); fullfile(folder, 'b.tiff')});
+            obj.verifyNotEmpty(out, 'A column of output names failed')
+            obj.verifyTrue(isfile(fullfile(folder, 'a.json')) && isfile(fullfile(folder, 'b.tiff')), ...
+                'Outputs were missing when names were given as a column')
+        end
+
+        function fileElsewhereOnPathDoesNotBlockSaving(obj)
+            % A file of the same name in a folder on the MATLAB path isn't the
+            % output file, so it mustn't stop the save (it once did, after
+            % registration had run)
+            onPath = obj.newFolder('onPath');
+            fclose(fopen(fullfile(onPath, 'a.tiff'), 'w'));
+            obj.applyFixture(matlab.unittest.fixtures.PathFixture(onPath));
+            runHere = obj.newFolder('runHere');
+            obj.applyFixture(matlab.unittest.fixtures.CurrentFolderFixture(runHere));
+
+            zstack.zplanes2tiff(fullfile(obj.fixtureDir, 'stack.tif'), 1, {'a.tiff', 'b.tiff'});
+            obj.verifyTrue(isfile(fullfile(runHere, 'a.tiff')) && isfile(fullfile(runHere, 'b.tiff')), ...
+                'The outputs were not saved in the current folder')
         end
 
         function outputsUnchanged(obj)
@@ -436,6 +476,15 @@ classdef zplanes2stack_tests < matlab.unittest.TestCase
             for ii = 1:length(expected)
                 obj.verifyTrue(contains(txt, expected{ii}), ...
                     sprintf('"%s" is missing from the log', expected{ii}))
+            end
+
+            % The result line lists every file saved
+            lines = splitlines(txt);
+            resultLine = lines(startsWith(lines, 'Result:'));
+            obj.assertNotEmpty(resultLine, 'The log has no Result line')
+            for f = {'a.tiff', 'b.tiff', 'a.json', 'b.json', 'slices.csv'}
+                obj.verifyTrue(contains(resultLine{1}, f{1}), ...
+                    sprintf('The Result line does not list %s', f{1}))
             end
         end
 
