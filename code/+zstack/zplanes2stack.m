@@ -92,7 +92,7 @@ function [out, channels, meta, slices] = zplanes2stack(fname, chan, opts)
 %                sample legitimately barely moved. The poor registration
 %                problem is most often observed with sigma = 0; rerun with a
 %                different sigma and compare results if necessary.
-%          zstack.zplanes2tiff saves this as a .csv or .tsv file.
+%          zstack.zplanes2tiff saves this as slices.csv.
 %
 % Examples
 %
