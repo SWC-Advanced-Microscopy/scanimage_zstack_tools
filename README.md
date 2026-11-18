@@ -42,8 +42,7 @@ is saved twice: in the TIFF's `Software` tag, and as a JSON file of the same nam
 (`red.json`, `green.json`); see `help zstack.zplanes2stack`.
 It also saves `slices.csv` beside the first output: one row per slice, with its z position, the
 shift applied to bring it into line with slice 1, the step from the previous slice, and how many of
-its frames the within-slice registration left unshifted. Choose another name with
-`'sliceFile', 'name.csv'` (or `.tsv` for a tab-separated file), e.g. to save two stacks in one folder.
+its frames the within-slice registration left unshifted.
 Each run is logged to `zplanes2tiff_<date>_<time>.log` beside the first output file, ending with a
 `Result:` line (SUCCESS, FAILED or ERROR).
 

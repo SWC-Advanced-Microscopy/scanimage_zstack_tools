@@ -1,4 +1,4 @@
-function [out, channels, meta, slices] = zplanes2tiff(fname, chan, outFiles, opts, stackOpts)
+function [out, channels, meta, slices] = zplanes2tiff(fname, chan, outFiles, stackOpts)
 % Build a fully-registered z-stack and save one TIFF per channel.
 %
 % function [out, channels, meta, slices] = zstack.zplanes2tiff(fname, chan, outFiles, Name=Value)
@@ -11,8 +11,7 @@ function [out, channels, meta, slices] = zplanes2tiff(fname, chan, outFiles, opt
 % the TIFF's Software tag, and as a JSON file with the same name as the
 % TIFF (e.g. green.json next to green.tiff). The per-slice table from
 % zplanes2stack (z position, registration shifts and so on; see its help)
-% is saved once for the stack, by default as slices.csv beside the first
-% output file.
+% is saved once for the stack, as slices.csv beside the first output file.
 %
 % The output file names are checked before registration starts, so a
 % mistake there doesn't waste a long run.
@@ -31,14 +30,10 @@ function [out, channels, meta, slices] = zplanes2tiff(fname, chan, outFiles, opt
 % chan - the channel used to calculate the registration.
 % outFiles - output file names, as a cell array or string array, one per
 %            saved channel, in the order ScanImage saved them (its
-%            channelSave setting). Neither these files nor their JSON
-%            files may already exist.
+%            channelSave setting). Neither these files, their JSON files
+%            nor slices.csv may already exist.
 %
 % Optional name-value arguments
-% sliceFile - file name for the per-slice table. Default: slices.csv in the
-%             folder of the first output file. Comma-separated, unless the
-%             name ends in .tsv, when it is tab-separated. Must not already
-%             exist, so give another name to save two stacks in one folder.
 % freq_cutoff, refine, sigma, needsBidiCorrection - passed on to
 %             zstack.zplanes2stack; see its help for what they do and their
 %             defaults.
@@ -50,14 +45,10 @@ function [out, channels, meta, slices] = zplanes2tiff(fname, chan, outFiles, opt
 %
 % - Register on channel 2 and save channels 1 and 2 as red and green
 % >> zstack.zplanes2tiff('file_00001.tif', 2, {'red.tiff', 'green.tiff'}, 'sigma', 2, 'refine', true);
-%
-% - The same, naming the slice table and making it tab-separated
-% >> zstack.zplanes2tiff('file_00001.tif', 2, {'red.tiff', 'green.tiff'}, 'sliceFile', 'stack1_slices.tsv');
 arguments
     fname {mustBeFile}
     chan % validated by zplanes2stack
     outFiles {mustBeA(outFiles, ["cell", "string"]), mustBeText}
-    opts.sliceFile {mustBeTextScalar} = fullfile(fileparts(outFiles{1}), 'slices.csv')
     % zplanes2stack's options, passed on unchanged. No defaults here, so only
     % those given are passed on, and zplanes2stack's own defaults and checks
     % apply. A new zplanes2stack option must also be listed here.
@@ -79,13 +70,13 @@ for k = 1:length(outFiles)
     [folder, name] = fileparts(outFiles{k});
     jsonFiles{k} = fullfile(folder, [name '.json']);
 end
-sliceFile = char(opts.sliceFile);
+sliceFile = fullfile(fileparts(outFiles{1}), 'slices.csv');
 stackArgs = namedargs2cell(stackOpts); % e.g. {'sigma', 2}
 
 % Refuse output folders that don't exist before anything else. The log goes
 % in the first one, and a missing folder would otherwise only fail at the
 % save, after registration.
-outFolders = unique(cellfun(@fileparts, [outFiles(:); {sliceFile}], 'UniformOutput', false));
+outFolders = unique(cellfun(@fileparts, outFiles(:), 'UniformOutput', false));
 outFolders = outFolders(~cellfun(@isempty, outFolders));
 missingFolders = outFolders(~cellfun(@isfolder, outFolders));
 if ~isempty(missingFolders)
@@ -199,11 +190,7 @@ end
 
 % Save the slice table, once for the stack
 fprintf('Saving slice table to %s\n', sliceFile)
-if endsWith(sliceFile, '.tsv', 'IgnoreCase', true)
-    writetable(slices, sliceFile, 'FileType', 'text', 'Delimiter', '\t')
-else
-    writetable(slices, sliceFile)
-end
+writetable(slices, sliceFile)
 
 end % registerAndSave
 

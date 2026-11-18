@@ -360,22 +360,14 @@ classdef zplanes2stack_tests < matlab.unittest.TestCase
             obj.verifyEqual(r.slices.zUm, [0; 2; 4])
         end
 
-        function sliceTableIsWrittenAsCsvOrTsv(obj)
+        function sliceTableIsWrittenAsCsv(obj)
             folder = obj.newFolder('sliceCsv');
             zstack.zplanes2tiff(fullfile(obj.fixtureDir, 'stack.tif'), 1, ...
-                {fullfile(folder, 'a.tiff'), fullfile(folder, 'b.tiff')}, 'sliceFile', fullfile(folder, 's.csv'));
-            obj.assertTrue(isfile(fullfile(folder, 's.csv')), 'No slice table was written')
-            written = readtable(fullfile(folder, 's.csv'));
+                {fullfile(folder, 'a.tiff'), fullfile(folder, 'b.tiff')});
+            obj.assertTrue(isfile(fullfile(folder, 'slices.csv')), 'No slices.csv was written')
+            written = readtable(fullfile(folder, 'slices.csv'));
             obj.verifyEqual(height(written), 3)
             obj.verifyEqual(written.Properties.VariableNames, obj.runs.stack.slices.Properties.VariableNames)
-
-            % .tsv, in any case, gives a tab-separated file
-            folder = obj.newFolder('sliceTsv');
-            zstack.zplanes2tiff(fullfile(obj.fixtureDir, 'stack.tif'), 1, ...
-                {fullfile(folder, 'a.tiff'), fullfile(folder, 'b.tiff')}, 'sliceFile', fullfile(folder, 's.TSV'));
-            obj.assertTrue(isfile(fullfile(folder, 's.TSV')), 'No .TSV slice table was written')
-            firstLine = strtok(fileread(fullfile(folder, 's.TSV')), newline);
-            obj.verifyTrue(contains(firstLine, sprintf('\t')), 'The .TSV file is not tab-separated')
         end
 
         % zplanes2tiff's run log. These call zplanes2tiff directly rather than
